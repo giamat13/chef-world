@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chef World</title>
+<style>
+  :root{
+    --bg:#1a1410;
+    --panel:#241b15;
+    --panel2:#2e2219;
+    --accent:#e8974a;
+    --accent2:#f2b366;
+    --text:#f3e9dc;
+    --muted:#b8a795;
+    --line:#3a2c21;
+    --good:#7cb87c;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Segoe UI', Arial, sans-serif;
+    background:radial-gradient(circle at 20% 0%, #2a1f16, var(--bg) 60%);
+    color:var(--text);
+    min-height:100vh;
+  }
+  header{
+    padding:24px 20px 16px;
+    text-align:center;
+  }
+  header h1{
+    margin:0;
+    font-size:2rem;
+    background:linear-gradient(90deg,var(--accent2),var(--accent));
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+    letter-spacing:1px;
+  }
+  header p{color:var(--muted);margin:6px 0 0;}
+
+  .tabs{
+    display:flex;
+    justify-content:center;
+    gap:8px;
+    margin:12px 0 24px;
+    flex-wrap:wrap;
+  }
+  .tab-btn{
+    background:var(--panel);
+    border:1px solid var(--line);
+    color:var(--muted);
+    padding:10px 20px;
+    border-radius:999px;
+    cursor:pointer;
+    font-size:.95rem;
+    transition:.2s;
+  }
+  .tab-btn.active{
+    background:linear-gradient(135deg,var(--accent),#c9702a);
+    color:#1a1410;
+    font-weight:700;
+    border-color:transparent;
+  }
+  .tab-btn:hover{color:var(--text);}
+
+  .container{max-width:1000px;margin:0 auto;padding:0 20px 60px;}
+  .view{display:none;animation:fadeIn .35s ease;}
+  .view.active{display:block;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+  /* ==== library ==== */
+  .toolbar{
+    display:flex;
+    gap:10px;
+    margin-bottom:20px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  input,textarea,select{
+    background:var(--panel2);
+    border:1px solid var(--line);
+    color:var(--text);
+    border-radius:10px;
+    padding:10px 12px;
+    font-family:inherit;
+    font-size:.95rem;
+  }
+  input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);}
+  #searchInput{flex:1;min-width:180px;}
+  .btn{
+    background:linear-gradient(135deg,var(--accent),#c9702a);
+    color:#1a1410;
+    border:none;
+    padding:10px 18px;
+    border-radius:10px;
+    font-weight:700;
+    cursor:pointer;
+    transition:transform .15s, box-shadow .15s;
+  }
+  .btn:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(232,151,74,.35);}
+  .btn.secondary{
+    background:var(--panel2);
+    color:var(--text);
+    border:1px solid var(--line);
+  }
+  .btn.danger{background:linear-gradient(135deg,#c95050,#8f3535);color:#fff;}
+  .btn.small{padding:6px 12px;font-size:.85rem;}
+
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+    gap:16px;
+  }
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:16px;
+    cursor:pointer;
+    transition:.2s;
+    position:relative;
+    overflow:hidden;
+  }
+  .card:hover{
+    transform:translateY(-4px);
+    border-color:var(--accent);
+    box-shadow:0 10px 24px rgba(0,0,0,.35);
+  }
+  .card .emoji{font-size:2.2rem;}
+  .card h3{margin:8px 0 4px;font-size:1.1rem;}
+  .card .meta{color:var(--muted);font-size:.8rem;display:flex;gap:10px;flex-wrap:wrap;}
+  .tag{
+    display:inline-block;
+    background:var(--panel2);
+    border:1px solid var(--line);
+    color:var(--accent2);
+    border-radius:999px;
+    padding:2px 10px;
+    font-size:.75rem;
+    margin-top:8px;
+  }
+  .empty{
+    text-align:center;
+    color:var(--muted);
+    padding:60px 20px;
+  }
+
+  /* ==== form ==== */
+  .form-panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:24px;
+  }
+  .form-row{margin-bottom:16px;}
+  .form-row label{display:block;margin-bottom:6px;color:var(--muted);font-size:.9rem;}
+  .form-row input, .form-row textarea, .form-row select{width:100%;}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .dyn-list{display:flex;flex-direction:column;gap:8px;}
+  .dyn-row{display:flex;gap:8px;align-items:center;}
+  .dyn-row input{flex:1;}
+  .remove-x{
+    background:var(--panel2);
+    border:1px solid var(--line);
+    color:#e08a8a;
+    border-radius:8px;
+    width:34px;height:34px;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .add-row-btn{
+    align-self:flex-start;
+    background:none;
+    border:1px dashed var(--line);
+    color:var(--accent2);
+    padding:8px 14px;
+    border-radius:8px;
+    cursor:pointer;
+  }
+  .step-row .step-minutes{
+    flex:0 0 70px;
+    width:70px;
+    text-align:center;
+  }
+
+  .servings-control{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:14px;
+    margin:18px 0 4px;
+  }
+  .servings-control .serv-btn{
+    background:var(--panel2);
+    border:1px solid var(--line);
+    color:var(--text);
+    width:36px;height:36px;
+    border-radius:50%;
+    font-size:1.2rem;
+    cursor:pointer;
+  }
+  .servings-control .serv-btn:hover{border-color:var(--accent);}
+  .servings-control .serv-count{
+    min-width:80px;
+    text-align:center;
+    font-size:1.05rem;
+  }
+  .servings-control .serv-count b{color:var(--accent2);}
+
+  /* ==== detail ==== */
+  .detail-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:16px;
+    margin-bottom:20px;
+    flex-wrap:wrap;
+  }
+  .detail-header h2{margin:0;font-size:1.6rem;}
+  .detail-actions{display:flex;gap:8px;}
+  .detail-meta{color:var(--muted);margin-bottom:20px;}
+  .detail-cols{display:grid;grid-template-columns:1fr 1.3fr;gap:24px;}
+  @media(max-width:700px){.detail-cols{grid-template-columns:1fr;}.two-col{grid-template-columns:1fr;}}
+  .panel-box{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:20px;
+  }
+  .panel-box h4{margin-top:0;color:var(--accent2);}
+  .ing-list{list-style:none;padding:0;margin:0;}
+  .ing-list li{
+    padding:8px 0;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    justify-content:space-between;
+  }
+  .ing-list li:last-child{border-bottom:none;}
+  .steps-list{padding-inline-start:20px;}
+  .steps-list li{margin-bottom:10px;line-height:1.5;}
+
+  /* ==== cook mode ==== */
+  .cook-overlay{
+    position:fixed;inset:0;
+    background:linear-gradient(160deg,#150f0a,#231810 60%);
+    z-index:100;
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    overflow-y:auto;
+  }
+  .cook-overlay.active{display:flex;}
+  .cook-close{
+    position:absolute;
+    top:20px;
+    right:20px;
+    background:var(--panel2);
+    border:1px solid var(--line);
+    color:var(--text);
+    width:42px;height:42px;
+    border-radius:50%;
+    font-size:1.2rem;
+    cursor:pointer;
+  }
+  .cook-progress-wrap{
+    width:100%;
+    max-width:600px;
+    margin-bottom:30px;
+  }
+  .cook-progress-bar{
+    height:8px;
+    background:var(--panel2);
+    border-radius:999px;
+    overflow:hidden;
+    border:1px solid var(--line);
+  }
+  .cook-progress-fill{
+    height:100%;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    width:0%;
+    transition:width .5s ease;
+    box-shadow:0 0 12px var(--accent);
+  }
+  .cook-progress-label{
+    text-align:center;
+    color:var(--muted);
+    margin-top:8px;
+    font-size:.9rem;
+  }
+  .cook-step-card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:40px;
+    max-width:600px;
+    width:100%;
+    text-align:center;
+    position:relative;
+    box-shadow:0 20px 50px rgba(0,0,0,.5);
+    animation:stepPulse .5s ease;
+  }
+  .cook-step-num{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:56px;height:56px;
+    border-radius:50%;
+    background:linear-gradient(135deg,var(--accent),#c9702a);
+    color:#1a1410;
+    font-weight:800;
+    font-size:1.4rem;
+    margin-bottom:20px;
+  }
+  .cook-step-text{
+    font-size:1.35rem;
+    line-height:1.6;
+    min-height:90px;
+  }
+  @keyframes stepPulse{
+    0%{transform:scale(.94);opacity:0;}
+    60%{transform:scale(1.02);}
+    100%{transform:scale(1);opacity:1;}
+  }
+  .cook-nav{
+    display:flex;
+    gap:14px;
+    margin-top:28px;
+    justify-content:center;
+    flex-wrap:wrap;
+  }
+  .cook-nav .btn{min-width:120px;}
+  .cook-timer{
+    margin-top:18px;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    gap:12px;
+  }
+  .cook-timer.show{display:flex;}
+  .timer-ring{
+    position:relative;
+    width:70px;height:70px;
+  }
+  .timer-ring svg{transform:rotate(-90deg);}
+  .timer-ring circle{
+    fill:none;
+    stroke-width:6;
+  }
+  .timer-bg{stroke:var(--line);}
+  .timer-fg{
+    stroke:var(--accent2);
+    stroke-linecap:round;
+    transition:stroke-dashoffset 1s linear;
+  }
+  .timer-text{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:.85rem;
+  }
+  .confetti{
+    position:fixed;inset:0;
+    pointer-events:none;
+    z-index:200;
+  }
+  .confetti span{
+    position:absolute;
+    top:-20px;
+    font-size:1.4rem;
+    animation:fall linear forwards;
+  }
+  @keyframes fall{
+    to{transform:translateY(110vh) rotate(360deg);opacity:0;}
+  }
+  .done-screen{text-align:center;}
+  .done-screen .big-emoji{font-size:4.5rem;animation:bounceIn .6s ease;}
+  @keyframes bounceIn{
+    0%{transform:scale(.3);opacity:0;}
+    60%{transform:scale(1.15);}
+    100%{transform:scale(1);opacity:1;}
+  }
+  .steps-dots{
+    display:flex;
+    gap:6px;
+    justify-content:center;
+    margin-top:22px;
+    flex-wrap:wrap;
+    max-width:400px;
+  }
+  .step-dot{
+    width:10px;height:10px;
+    border-radius:50%;
+    background:var(--line);
+    transition:.3s;
+  }
+  .step-dot.done{background:var(--good);}
+  .step-dot.current{background:var(--accent2);transform:scale(1.4);}
+
+  .cook-ing-list{
+    list-style:none;
+    padding:0;
+    margin:20px 0 0;
+    text-align:left;
+    max-height:320px;
+    overflow-y:auto;
+  }
+  .cook-ing-list li{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 4px;
+    border-bottom:1px solid var(--line);
+    font-size:1.05rem;
+    animation:ingIn .35s ease both;
+  }
+  .cook-ing-list li:last-child{border-bottom:none;}
+  @keyframes ingIn{
+    from{opacity:0;transform:translateX(-8px);}
+    to{opacity:1;transform:translateX(0);}
+  }
+  .cook-ing-list input[type="checkbox"]{
+    width:20px;height:20px;
+    accent-color:var(--accent);
+    flex-shrink:0;
+  }
+  .cook-ing-list li.checked span{
+    color:var(--muted);
+    text-decoration:line-through;
+  }
+
+  .modal-bg{
+    position:fixed;inset:0;
+    background:rgba(0,0,0,.6);
+    display:none;
+    align-items:center;justify-content:center;
+    z-index:150;
+    padding:20px;
+  }
+  .modal-bg.active{display:flex;}
+  .modal-box{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:24px;
+    max-width:380px;
+    text-align:center;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>👨‍🍳 Chef World</h1>
+  <p>Collect, organize, and cook — with a step-by-step guide</p>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" data-view="library">📚 Library</button>
+  <button class="tab-btn" data-view="form">➕ New Recipe</button>
+</div>
+
+<div class="container">
+
+  <!-- LIBRARY -->
+  <div class="view active" id="view-library">
+    <div class="toolbar">
+      <input id="searchInput" placeholder="Search by name, tag or ingredient...">
+      <select id="filterTag"><option value="">All tags</option></select>
+    </div>
+    <div class="grid" id="recipeGrid"></div>
+    <div class="empty" id="emptyState" style="display:none;">
+      No recipes yet 🍳<br>Click "New Recipe" to get started
+    </div>
+  </div>
+
+  <!-- FORM -->
+  <div class="view" id="view-form">
+    <div class="form-panel">
+      <h2 id="formTitle">New Recipe</h2>
+      <div class="form-row">
+        <label>Emoji</label>
+        <input id="f-emoji" placeholder="🍕 🍰 🥗 ..." maxlength="4">
+      </div>
+      <div class="form-row">
+        <label>Recipe name</label>
+        <input id="f-name" placeholder="e.g. Creamy Mushroom Pasta">
+      </div>
+      <div class="two-col">
+        <div class="form-row">
+          <label>Prep time (minutes)</label>
+          <input id="f-time" type="number" min="0" placeholder="30">
+        </div>
+        <div class="form-row">
+          <label>Servings</label>
+          <input id="f-servings" type="number" min="1" placeholder="4">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Tag (e.g. Dessert / Italian / Vegan)</label>
+        <input id="f-tag" placeholder="Dinner">
+      </div>
+
+      <div class="form-row">
+        <label>Ingredients</label>
+        <div class="dyn-list" id="ingList"></div>
+        <button class="add-row-btn" id="addIng" type="button">+ Add ingredient</button>
+      </div>
+
+      <div class="form-row">
+        <label>Steps</label>
+        <div class="dyn-list" id="stepList"></div>
+        <button class="add-row-btn" id="addStep" type="button">+ Add step</button>
+      </div>
+
+      <div class="form-row">
+        <label>Notes (optional)</label>
+        <textarea id="f-notes" rows="2" placeholder="Tips, variations..."></textarea>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:10px;">
+        <button class="btn" id="saveRecipeBtn">💾 Save Recipe</button>
+        <button class="btn secondary" id="cancelFormBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DETAIL -->
+  <div class="view" id="view-detail">
+    <div class="detail-header">
+      <div>
+        <h2 id="d-title">Recipe name</h2>
+        <div class="detail-meta" id="d-meta"></div>
+      </div>
+      <div class="detail-actions">
+        <button class="btn" id="startCookBtn">👨‍🍳 Let's Cook</button>
+        <button class="btn secondary small" id="editRecipeBtn">Edit</button>
+        <button class="btn danger small" id="deleteRecipeBtn">Delete</button>
+      </div>
+    </div>
+    <div class="detail-cols">
+      <div class="panel-box">
+        <h4>Ingredients</h4>
+        <ul class="ing-list" id="d-ingredients"></ul>
+      </div>
+      <div class="panel-box">
+        <h4>Instructions</h4>
+        <ol class="steps-list" id="d-steps"></ol>
+        <div id="d-notes-wrap" style="margin-top:14px;display:none;">
+          <h4>Notes</h4>
+          <p id="d-notes" style="color:var(--muted);"></p>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px;">
+      <button class="btn secondary" id="backToLibrary">← Back to Library</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- COOK MODE OVERLAY -->
+<div class="cook-overlay" id="cookOverlay">
+  <button class="cook-close" id="cookCloseBtn">✕</button>
+  <div class="cook-progress-wrap">
+    <div class="cook-progress-bar"><div class="cook-progress-fill" id="cookProgressFill"></div></div>
+    <div class="cook-progress-label" id="cookProgressLabel"></div>
+  </div>
+
+  <div id="cookBody"></div>
+</div>
+
+<!-- CONFIRM DELETE MODAL -->
+<div class="modal-bg" id="deleteModal">
+  <div class="modal-box">
+    <p>Delete this recipe? This can't be undone 🗑️</p>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;">
+      <button class="btn danger" id="confirmDeleteBtn">Yes, delete</button>
+      <button class="btn secondary" id="cancelDeleteBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const STORAGE_KEY = "chef_world_v1";
+  let recipes = [];
+  let currentRecipeId = null;
+  let editingId = null;
+  // cook flow: phase is 'ingredients' or 'steps'
+  let cookState = { ingredients: [], steps: [], phase: 'ingredients', index: 0, timerInterval: null, baseServings: 1, servings: 1 };
+
+  // ---------- quantity scaling ----------
+  function parseLeadingNumber(text){
+    const m = text.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d+(\.\d+)?)/);
+    if(!m) return null;
+    const raw = m[1];
+    let value;
+    if(/\d+\s+\d+\/\d+/.test(raw)){
+      const [whole, frac] = raw.split(/\s+/);
+      const [n,d] = frac.split('/').map(Number);
+      value = Number(whole) + n/d;
+    } else if(raw.includes('/')){
+      const [n,d] = raw.split('/').map(Number);
+      value = n/d;
+    } else {
+      value = parseFloat(raw);
+    }
+    return { value, matchLength: raw.length };
+  }
+  function formatScaledNumber(n){
+    const rounded = Math.round(n*100)/100;
+    return String(rounded);
+  }
+  function scaleIngredientText(text, factor){
+    if(factor === 1) return text;
+    const parsed = parseLeadingNumber(text);
+    if(!parsed) return text;
+    const newVal = parsed.value * factor;
+    const rest = text.slice(parsed.matchLength);
+    return formatScaledNumber(newVal) + rest;
+  }
+
+  // ---------- persistence ----------
+  function load(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      recipes = raw ? JSON.parse(raw) : [];
+    }catch(e){ recipes = []; }
+  }
+  function save(){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
+  }
+  function uid(){
+    return 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+  }
+
+  // ---------- view switching ----------
+  const views = {
+    library: document.getElementById('view-library'),
+    form: document.getElementById('view-form'),
+    detail: document.getElementById('view-detail'),
+  };
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  function showView(name){
+    Object.values(views).forEach(v=>v.classList.remove('active'));
+    views[name].classList.add('active');
+    tabBtns.forEach(b=>b.classList.toggle('active', b.dataset.view === name));
+  }
+  tabBtns.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(btn.dataset.view === 'form'){ openForm(null); }
+      else { showView(btn.dataset.view); renderGrid(); }
+    });
+  });
+
+  // ---------- debug recipes ----------
+  // Type "DEBUG" in the search box to reveal these built-in test recipes.
+  // They are not stored in localStorage and exist only for testing the UI.
+  const DEBUG_RECIPES = [
+    {
+      id: 'debug_timer_test',
+      emoji: '🧪',
+      name: 'DEBUG: Timer Test',
+      time: '5',
+      servings: '2',
+      tag: 'DEBUG',
+      notes: 'Exercises step timers of different lengths and a no-wait step.',
+      ingredients: [
+        { text: '2 cups test flour' },
+        { text: '1/2 tsp test salt' },
+        { text: '3 eggs' },
+      ],
+      steps: [
+        { text: 'Mix everything together (no wait needed)', seconds: null },
+        { text: 'Let it rest for a short 10 second timer', seconds: 10 },
+        { text: 'Simmer for 2 minutes', seconds: 120 },
+        { text: 'Plate it up (no wait needed)', seconds: null },
+      ],
+    },
+    {
+      id: 'debug_scaling_test',
+      emoji: '🧪',
+      name: 'DEBUG: Scaling Test',
+      time: '10',
+      servings: '4',
+      tag: 'DEBUG',
+      notes: 'Exercises ingredient quantity scaling with whole numbers, decimals and fractions.',
+      ingredients: [
+        { text: '4 eggs' },
+        { text: '1.5 cups milk' },
+        { text: '1/2 tsp vanilla' },
+        { text: '2 1/2 cups flour' },
+        { text: 'A pinch of salt (no leading number)' },
+      ],
+      steps: [
+        { text: 'Whisk it all together', seconds: null },
+        { text: 'Bake for 1 minute', seconds: 60 },
+      ],
+    },
+    {
+      id: 'debug_long_test',
+      emoji: '🧪',
+      name: 'DEBUG: Long Recipe Test',
+      time: '15',
+      servings: '1',
+      tag: 'DEBUG',
+      notes: 'Exercises many steps and the progress bar / dots.',
+      ingredients: [
+        { text: '1 test ingredient' },
+      ],
+      steps: [1,2,3,4,5,6,7,8].map(n=>({ text: `Step number ${n}`, seconds: n % 3 === 0 ? 5 : null })),
+    },
+  ];
+  function findRecipeById(id){
+    return recipes.find(r=>r.id === id) || DEBUG_RECIPES.find(r=>r.id === id);
+  }
+
+  // ---------- library rendering ----------
+  const grid = document.getElementById('recipeGrid');
+  const emptyState = document.getElementById('emptyState');
+  const searchInput = document.getElementById('searchInput');
+  const filterTag = document.getElementById('filterTag');
+
+  function refreshTagFilter(){
+    const tags = [...new Set(recipes.map(r=>r.tag).filter(Boolean))];
+    const current = filterTag.value;
+    filterTag.innerHTML = '<option value="">All tags</option>' +
+      tags.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    filterTag.value = tags.includes(current) ? current : '';
+  }
+
+  function renderGrid(){
+    refreshTagFilter();
+    const qRaw = searchInput.value.trim();
+    const isDebug = qRaw.toUpperCase() === 'DEBUG';
+    const q = qRaw.toLowerCase();
+    const tag = filterTag.value;
+    const source = isDebug ? DEBUG_RECIPES : recipes;
+    const filtered = source.filter(r=>{
+      const matchesTag = !tag || r.tag === tag;
+      const hay = (r.name + ' ' + (r.tag||'') + ' ' + r.ingredients.map(i=>i.text).join(' ')).toLowerCase();
+      const matchesQ = isDebug || !q || hay.includes(q);
+      return matchesTag && matchesQ;
+    });
+    grid.innerHTML = '';
+    if(filtered.length === 0){
+      emptyState.style.display = 'block';
+      emptyState.innerHTML = recipes.length === 0
+        ? 'No recipes yet 🍳<br>Click "New Recipe" to get started'
+        : 'No matching recipes found 🔍';
+      return;
+    }
+    emptyState.style.display = 'none';
+    filtered.forEach(r=>{
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="emoji">${escapeHtml(r.emoji || '🍽️')}</div>
+        <h3>${escapeHtml(r.name)}</h3>
+        <div class="meta">
+          ${r.time ? `<span>⏱ ${escapeHtml(String(r.time))} min</span>` : ''}
+          ${r.servings ? `<span>🍴 ${escapeHtml(String(r.servings))} servings</span>` : ''}
+        </div>
+        ${r.tag ? `<span class="tag">${escapeHtml(r.tag)}</span>` : ''}
+      `;
+      card.addEventListener('click', ()=>openDetail(r.id));
+      grid.appendChild(card);
+    });
+  }
+  searchInput.addEventListener('input', renderGrid);
+  filterTag.addEventListener('change', renderGrid);
+
+  function escapeHtml(str){
+    const d = document.createElement('div');
+    d.textContent = str == null ? '' : String(str);
+    return d.innerHTML;
+  }
+
+  // ---------- form ----------
+  const ingList = document.getElementById('ingList');
+  const stepList = document.getElementById('stepList');
+  const formTitle = document.getElementById('formTitle');
+
+  function addDynRow(container, placeholder, value=''){
+    const row = document.createElement('div');
+    row.className = 'dyn-row';
+    row.innerHTML = `<input value="${escapeHtml(value)}" placeholder="${placeholder}">
+      <button type="button" class="remove-x">✕</button>`;
+    row.querySelector('.remove-x').addEventListener('click', ()=>row.remove());
+    container.appendChild(row);
+    return row;
+  }
+  document.getElementById('addIng').addEventListener('click', ()=>addDynRow(ingList, 'e.g. 200g flour'));
+  document.getElementById('addStep').addEventListener('click', ()=>addStepRow(stepList));
+
+  function addStepRow(container, textVal='', minutesVal=''){
+    const row = document.createElement('div');
+    row.className = 'dyn-row step-row';
+    row.innerHTML = `<input class="step-text" value="${escapeHtml(textVal)}" placeholder="Step description">
+      <input class="step-minutes" type="number" min="0" step="0.5" value="${escapeHtml(minutesVal)}" placeholder="min" title="Wait time in minutes (leave empty if no waiting is needed)">
+      <button type="button" class="remove-x">✕</button>`;
+    row.querySelector('.remove-x').addEventListener('click', ()=>row.remove());
+    container.appendChild(row);
+    return row;
+  }
+
+  function resetForm(){
+    document.getElementById('f-emoji').value = '';
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-time').value = '';
+    document.getElementById('f-servings').value = '';
+    document.getElementById('f-tag').value = '';
+    document.getElementById('f-notes').value = '';
+    ingList.innerHTML = '';
+    stepList.innerHTML = '';
+    addDynRow(ingList, 'e.g. 200g flour');
+    addDynRow(ingList, 'e.g. 2 eggs');
+    addStepRow(stepList);
+    addStepRow(stepList);
+  }
+
+  function openForm(recipe){
+    editingId = recipe ? recipe.id : null;
+    formTitle.textContent = recipe ? 'Edit Recipe' : 'New Recipe';
+    if(recipe){
+      document.getElementById('f-emoji').value = recipe.emoji || '';
+      document.getElementById('f-name').value = recipe.name || '';
+      document.getElementById('f-time').value = recipe.time || '';
+      document.getElementById('f-servings').value = recipe.servings || '';
+      document.getElementById('f-tag').value = recipe.tag || '';
+      document.getElementById('f-notes').value = recipe.notes || '';
+      ingList.innerHTML = '';
+      stepList.innerHTML = '';
+      (recipe.ingredients||[]).forEach(i=>addDynRow(ingList,'Ingredient', i.text));
+      (recipe.steps||[]).forEach(s=>addStepRow(stepList, s.text, s.seconds ? String(s.seconds/60) : ''));
+      if(!recipe.ingredients?.length) addDynRow(ingList,'Ingredient');
+      if(!recipe.steps?.length) addStepRow(stepList);
+    } else {
+      resetForm();
+    }
+    showView('form');
+  }
+
+  document.getElementById('cancelFormBtn').addEventListener('click', ()=>{
+    showView('library'); renderGrid();
+  });
+
+  document.getElementById('saveRecipeBtn').addEventListener('click', ()=>{
+    const name = document.getElementById('f-name').value.trim();
+    if(!name){ alert('Please enter a recipe name'); return; }
+    const ingredients = [...ingList.querySelectorAll('input')]
+      .map(i=>i.value.trim()).filter(Boolean).map(text=>({text}));
+    const steps = [...stepList.querySelectorAll('.step-row')]
+      .map(row=>{
+        const text = row.querySelector('.step-text').value.trim();
+        const minutesRaw = row.querySelector('.step-minutes').value.trim();
+        const minutes = minutesRaw ? parseFloat(minutesRaw) : null;
+        const seconds = (minutes && minutes > 0) ? Math.round(minutes*60) : null;
+        return { text, seconds };
+      })
+      .filter(s=>s.text);
+    if(steps.length === 0){ alert('Please add at least one step'); return; }
+
+    const data = {
+      id: editingId || uid(),
+      emoji: document.getElementById('f-emoji').value.trim() || '🍽️',
+      name,
+      time: document.getElementById('f-time').value.trim(),
+      servings: document.getElementById('f-servings').value.trim(),
+      tag: document.getElementById('f-tag').value.trim(),
+      notes: document.getElementById('f-notes').value.trim(),
+      ingredients,
+      steps,
+    };
+
+    if(editingId){
+      const idx = recipes.findIndex(r=>r.id === editingId);
+      if(idx > -1) recipes[idx] = data;
+    } else {
+      recipes.unshift(data);
+    }
+    save();
+    editingId = null;
+    showView('library');
+    renderGrid();
+  });
+
+  // ---------- detail ----------
+  function openDetail(id){
+    const r = findRecipeById(id);
+    if(!r) return;
+    currentRecipeId = id;
+    document.getElementById('d-title').textContent = `${r.emoji || ''} ${r.name}`;
+    const metaParts = [];
+    if(r.time) metaParts.push(`⏱ ${r.time} min`);
+    if(r.servings) metaParts.push(`🍴 ${r.servings} servings`);
+    if(r.tag) metaParts.push(`🏷 ${r.tag}`);
+    document.getElementById('d-meta').textContent = metaParts.join('   •   ');
+
+    document.getElementById('d-ingredients').innerHTML = r.ingredients.map(i=>
+      `<li><span>${escapeHtml(i.text)}</span></li>`).join('') || '<li>—</li>';
+
+    document.getElementById('d-steps').innerHTML = r.steps.map(s=>
+      `<li>${escapeHtml(s.text)}</li>`).join('');
+
+    const notesWrap = document.getElementById('d-notes-wrap');
+    if(r.notes){
+      notesWrap.style.display = 'block';
+      document.getElementById('d-notes').textContent = r.notes;
+    } else {
+      notesWrap.style.display = 'none';
+    }
+    showView('detail');
+  }
+
+  document.getElementById('backToLibrary').addEventListener('click', ()=>{
+    showView('library'); renderGrid();
+  });
+  document.getElementById('editRecipeBtn').addEventListener('click', ()=>{
+    const r = findRecipeById(currentRecipeId);
+    if(r) openForm(r);
+  });
+
+  // delete flow
+  const deleteModal = document.getElementById('deleteModal');
+  document.getElementById('deleteRecipeBtn').addEventListener('click', ()=>{
+    deleteModal.classList.add('active');
+  });
+  document.getElementById('cancelDeleteBtn').addEventListener('click', ()=>{
+    deleteModal.classList.remove('active');
+  });
+  document.getElementById('confirmDeleteBtn').addEventListener('click', ()=>{
+    recipes = recipes.filter(r=>r.id !== currentRecipeId);
+    save();
+    deleteModal.classList.remove('active');
+    showView('library');
+    renderGrid();
+  });
+
+  // ---------- cook mode ----------
+  const cookOverlay = document.getElementById('cookOverlay');
+  const cookBody = document.getElementById('cookBody');
+  const cookProgressFill = document.getElementById('cookProgressFill');
+  const cookProgressLabel = document.getElementById('cookProgressLabel');
+
+  document.getElementById('startCookBtn').addEventListener('click', ()=>{
+    const r = findRecipeById(currentRecipeId);
+    if(!r || !r.steps.length) return;
+    cookState.ingredients = r.ingredients.map(i=>i.text);
+    cookState.steps = r.steps; // [{text, seconds}]
+    cookState.baseServings = parseFloat(r.servings) > 0 ? parseFloat(r.servings) : 1;
+    cookState.servings = cookState.baseServings;
+    cookState.phase = cookState.ingredients.length ? 'ingredients' : 'steps';
+    cookState.index = 0;
+    cookOverlay.classList.add('active');
+    renderCookIngredients();
+  });
+
+  document.getElementById('cookCloseBtn').addEventListener('click', closeCook);
+  function closeCook(){
+    stopTimer();
+    cookOverlay.classList.remove('active');
+  }
+
+  function renderCookIngredients(){
+    cookProgressFill.style.width = '0%';
+    cookProgressLabel.textContent = 'Gather your ingredients';
+    stopTimer();
+
+    const factor = cookState.servings / cookState.baseServings;
+
+    cookBody.innerHTML = `
+      <div class="cook-step-card">
+        <div class="cook-step-num">🧺</div>
+        <div class="cook-step-text">Everything you'll need</div>
+        <div class="servings-control">
+          <button type="button" class="serv-btn" id="servDown">−</button>
+          <span class="serv-count">Servings: <b id="servCount">${formatScaledNumber(cookState.servings)}</b></span>
+          <button type="button" class="serv-btn" id="servUp">+</button>
+        </div>
+        <ul class="cook-ing-list" id="cookIngList">
+          ${cookState.ingredients.map((text,idx)=>`
+            <li style="animation-delay:${idx*0.05}s">
+              <input type="checkbox" data-idx="${idx}">
+              <span>${escapeHtml(scaleIngredientText(text, factor))}</span>
+            </li>`).join('')}
+        </ul>
+        <div class="cook-nav">
+          <button class="btn" id="startStepsBtn">Start Cooking →</button>
+        </div>
+      </div>
+    `;
+
+    cookBody.querySelectorAll('.cook-ing-list input[type="checkbox"]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        cb.closest('li').classList.toggle('checked', cb.checked);
+      });
+    });
+    document.getElementById('servUp').addEventListener('click', ()=>{
+      cookState.servings = Math.max(1, cookState.servings + 1);
+      renderCookIngredients();
+    });
+    document.getElementById('servDown').addEventListener('click', ()=>{
+      cookState.servings = Math.max(1, cookState.servings - 1);
+      renderCookIngredients();
+    });
+    document.getElementById('startStepsBtn').addEventListener('click', ()=>{
+      cookState.phase = 'steps';
+      cookState.index = 0;
+      renderCookStep();
+    });
+  }
+
+  function renderCookStep(){
+    const total = cookState.steps.length;
+    const i = cookState.index;
+    const pct = Math.round(((i)/total)*100);
+    cookProgressFill.style.width = pct + '%';
+    cookProgressLabel.textContent = `Step ${i+1} of ${total}`;
+
+    stopTimer();
+
+    if(i >= total){
+      renderDoneScreen();
+      return;
+    }
+
+    const text = cookState.steps[i].text;
+    const secs = cookState.steps[i].seconds;
+
+    const dots = cookState.steps.map((_,idx)=>{
+      let cls = 'step-dot';
+      if(idx < i) cls += ' done';
+      if(idx === i) cls += ' current';
+      return `<span class="${cls}"></span>`;
+    }).join('');
+
+    cookBody.innerHTML = `
+      <div class="cook-step-card">
+        <div class="cook-step-num">${i+1}</div>
+        <div class="cook-step-text">${escapeHtml(text)}</div>
+        ${secs ? `
+          <div class="cook-timer show">
+            <div class="timer-ring">
+              <svg width="70" height="70">
+                <circle class="timer-bg" cx="35" cy="35" r="30"></circle>
+                <circle class="timer-fg" id="timerCircle" cx="35" cy="35" r="30"
+                  stroke-dasharray="${2*Math.PI*30}" stroke-dashoffset="0"></circle>
+              </svg>
+              <div class="timer-text" id="timerText">${formatTime(secs)}</div>
+            </div>
+            <button class="btn secondary small" id="timerToggle">▶ Start timer</button>
+          </div>` : ''}
+        <div class="cook-nav">
+          <button class="btn secondary" id="prevStepBtn">← Back</button>
+          <button class="btn" id="nextStepBtn">${i===total-1 ? '🎉 Done!' : 'Next →'}</button>
+        </div>
+        <div class="steps-dots">${dots}</div>
+      </div>
+    `;
+
+    document.getElementById('prevStepBtn').addEventListener('click', ()=>{
+      if(i === 0){
+        cookState.phase = 'ingredients';
+        renderCookIngredients();
+      } else {
+        cookState.index = Math.max(0, cookState.index-1);
+        renderCookStep();
+      }
+    });
+    document.getElementById('nextStepBtn').addEventListener('click', ()=>{
+      cookState.index += 1;
+      renderCookStep();
+    });
+
+    if(secs){
+      const toggle = document.getElementById('timerToggle');
+      toggle.addEventListener('click', ()=>toggleTimer(secs, toggle));
+    }
+  }
+
+  function formatTime(s){
+    const m = Math.floor(s/60), sec = s%60;
+    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }
+
+  function toggleTimer(totalSecs, btn){
+    if(cookState.timerInterval){
+      stopTimer();
+      btn.textContent = '▶ Start timer';
+      return;
+    }
+    let remaining = totalSecs;
+    const circle = document.getElementById('timerCircle');
+    const text = document.getElementById('timerText');
+    const circumference = 2*Math.PI*30;
+    btn.textContent = '⏸ Stop';
+    cookState.timerInterval = setInterval(()=>{
+      remaining -= 1;
+      if(text) text.textContent = formatTime(Math.max(remaining,0));
+      if(circle){
+        const offset = circumference * (1 - remaining/totalSecs);
+        circle.style.strokeDashoffset = offset;
+      }
+      if(remaining <= 0){
+        stopTimer();
+        if(text) text.textContent = 'Done! ⏰';
+        beep();
+      }
+    }, 1000);
+  }
+  function stopTimer(){
+    if(cookState.timerInterval){
+      clearInterval(cookState.timerInterval);
+      cookState.timerInterval = null;
+    }
+  }
+  function beep(){
+    try{
+      const ctx = new (window.AudioContext||window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.2, ctx.currentTime);
+      o.start();
+      o.stop(ctx.currentTime + 0.3);
+    }catch(e){}
+  }
+
+  function renderDoneScreen(){
+    cookProgressFill.style.width = '100%';
+    cookProgressLabel.textContent = 'Complete!';
+    cookBody.innerHTML = `
+      <div class="cook-step-card done-screen">
+        <div class="big-emoji">🎉</div>
+        <h2>Bon appétit!</h2>
+        <p style="color:var(--muted);">Your dish is ready — enjoy the meal</p>
+        <div class="cook-nav">
+          <button class="btn secondary" id="cookAgainBtn">↺ Back to steps</button>
+          <button class="btn" id="cookFinishBtn">Close</button>
+        </div>
+      </div>
+    `;
+    launchConfetti();
+    document.getElementById('cookAgainBtn').addEventListener('click', ()=>{
+      cookState.index = cookState.steps.length - 1;
+      renderCookStep();
+    });
+    document.getElementById('cookFinishBtn').addEventListener('click', closeCook);
+  }
+
+  function launchConfetti(){
+    const wrap = document.createElement('div');
+    wrap.className = 'confetti';
+    const emojis = ['🎉','✨','🍽️','🥳','⭐'];
+    for(let i=0;i<24;i++){
+      const s = document.createElement('span');
+      s.textContent = emojis[Math.floor(Math.random()*emojis.length)];
+      s.style.left = Math.random()*100 + '%';
+      s.style.animationDuration = (2 + Math.random()*2) + 's';
+      s.style.animationDelay = (Math.random()*0.5) + 's';
+      s.style.fontSize = (1 + Math.random()*1.2) + 'rem';
+      wrap.appendChild(s);
+    }
+    document.body.appendChild(wrap);
+    setTimeout(()=>wrap.remove(), 4200);
+  }
+
+  // ---------- init ----------
+  load();
+  renderGrid();
+})();
+</script>
+</body>
+</html>
