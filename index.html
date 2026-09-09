@@ -447,9 +447,116 @@
     max-width:380px;
     text-align:center;
   }
+
+  /* ==== auth ==== */
+  .auth-overlay{
+    position:fixed;inset:0;
+    background:radial-gradient(circle at 20% 0%, #2a1f16, var(--bg) 60%);
+    z-index:300;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+  }
+  .auth-overlay.hidden{display:none;}
+  .auth-box{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:32px;
+    max-width:360px;
+    width:100%;
+    text-align:center;
+  }
+  .auth-box h2{margin-top:0;}
+  .auth-tabs{
+    display:flex;
+    gap:8px;
+    margin-bottom:18px;
+    background:var(--panel2);
+    border-radius:10px;
+    padding:4px;
+  }
+  .auth-tab-btn{
+    flex:1;
+    background:none;
+    border:none;
+    color:var(--muted);
+    padding:8px;
+    border-radius:8px;
+    cursor:pointer;
+  }
+  .auth-tab-btn.active{background:var(--accent);color:#1a1410;font-weight:700;}
+  .auth-box input{width:100%;margin-bottom:10px;}
+  .auth-error{color:#e08a8a;font-size:.85rem;min-height:1.2em;margin-bottom:8px;}
+  .auth-divider{color:var(--muted);font-size:.8rem;margin:14px 0;display:flex;align-items:center;gap:10px;}
+  .auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--line);}
+  .google-btn{
+    width:100%;
+    background:var(--panel2);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:10px;
+    border-radius:10px;
+    cursor:pointer;
+    font-weight:600;
+  }
+  .google-btn:hover{border-color:var(--accent);}
+  .auth-loading{color:var(--muted);padding:40px;text-align:center;}
+
+  .account-bar{
+    position:fixed;
+    top:16px;
+    left:16px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:999px;
+    padding:6px 14px 6px 6px;
+    font-size:.85rem;
+    z-index:50;
+  }
+  .account-bar .acc-avatar{
+    width:26px;height:26px;
+    border-radius:50%;
+    background:linear-gradient(135deg,var(--accent),#c9702a);
+    display:flex;align-items:center;justify-content:center;
+    font-size:.8rem;font-weight:700;color:#1a1410;
+  }
+  .account-bar button{
+    background:none;
+    border:none;
+    color:var(--muted);
+    cursor:pointer;
+    font-size:.8rem;
+    text-decoration:underline;
+  }
+  .account-bar button:hover{color:var(--text);}
+  @media(max-width:600px){
+    .account-bar{position:static;margin:0 auto 10px;width:fit-content;}
+  }
+    padding:24px;
+    max-width:380px;
+    text-align:center;
+  }
 </style>
 </head>
 <body>
+
+<!-- AUTH OVERLAY -->
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-box" id="authBox">
+    <div class="auth-loading" id="authLoading">Loading Chef World…</div>
+  </div>
+</div>
+
+<div class="account-bar" id="accountBar" style="display:none;">
+  <div class="acc-avatar" id="accAvatar">?</div>
+  <span id="accEmail"></span>
+  <button id="signOutBtn">Sign out</button>
+</div>
 
 <header>
   <h1>👨‍🍳 Chef World</h1>
@@ -519,6 +626,17 @@
         <textarea id="f-notes" rows="2" placeholder="Tips, variations..."></textarea>
       </div>
 
+      <div class="form-row" style="margin-top:4px;">
+        <button class="add-row-btn" id="aiImportToggle" type="button" style="width:100%;text-align:left;padding:10px 14px;">🤖 Import from text</button>
+        <div id="aiImportPanel" style="display:none;margin-top:10px;">
+          <textarea id="aiImportText" rows="6" placeholder="הדבק כל טקסט מתכון כאן — מאתר, הערות, OCR, וכו'&#10;Paste any recipe text here — from a website, notes, photo OCR, etc." style="width:100%;resize:vertical;"></textarea>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+            <button class="btn" id="aiImportBtn" type="button">✨ Generate</button>
+            <span id="aiImportStatus" style="color:var(--muted);font-size:.9rem;"></span>
+          </div>
+        </div>
+      </div>
+
       <div style="display:flex;gap:10px;margin-top:10px;">
         <button class="btn" id="saveRecipeBtn">💾 Save Recipe</button>
         <button class="btn secondary" id="cancelFormBtn">Cancel</button>
@@ -582,11 +700,209 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+  // =====================================================================
+  // FIREBASE SETUP
+  // Fill in your own project's config below (Firebase console → Project
+  // settings → General → "Your apps" → SDK setup and configuration).
+  // See the chat message accompanying this file for the full checklist
+  // of what to enable in the Firebase console.
+  // =====================================================================
+  const firebaseConfig = {
+    apiKey: "AIzaSyCC2sJPJKOpWZkQoZCIcbSn0YQLCap3PN8",
+    authDomain: "chef-world-giamat13.firebaseapp.com",
+    projectId: "chef-world-giamat13",
+    storageBucket: "chef-world-giamat13.firebasestorage.app",
+    messagingSenderId: "748523748227",
+    appId: "1:748523748227:web:5bc6fd6f34dbd5a41354b6",
+    measurementId: "G-80M3KNF20P"
+  };
+
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+  import {
+    getAuth, onAuthStateChanged, signInWithEmailAndPassword,
+    createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut,
+    signInAnonymously
+  } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
+  import {
+    getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot
+  } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+  import {
+    getAnalytics, logEvent, isSupported as analyticsIsSupported
+  } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-analytics.js";
+  import {
+    initializeAppCheck, ReCaptchaEnterpriseProvider
+  } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app-check.js";
+  import {
+    getAI, getGenerativeModel, GoogleAIBackend
+  } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-ai.js";
+
+  const app = initializeApp(firebaseConfig);
+  const appCheck = initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider('6Ld8ubItAAAAAJwC9X737BOldxbch80xiqKrFWKa'),
+    isTokenAutoRefreshEnabled: true
+  });
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const ai = getAI(app, { backend: new GoogleAIBackend() });
+  const recipeModel = getGenerativeModel(ai, { model: 'gemini-3.6-flash' });
+  let analytics = null;
+  analyticsIsSupported().then(ok=>{ if(ok) analytics = getAnalytics(app); }).catch(()=>{});
+
+  // ---- bridge object consumed by the classic script below ----
+  window.ChefCloud = {
+    ready: false,
+    user: null,
+    _readyCbs: [],
+    _recipeCbs: [],
+    onReady(cb){ this.ready ? cb() : this._readyCbs.push(cb); },
+    onRecipesChange(cb){ this._recipeCbs.push(cb); },
+    logEvent(name, params){ if(analytics) try{ logEvent(analytics, name, params||{}); }catch(e){} },
+    async saveRecipe(recipe){
+      if(!this.user) return;
+      const ref = doc(collection(db, 'users', this.user.uid, 'recipes'), recipe.id);
+      await setDoc(ref, recipe);
+      this.logEvent('recipe_saved', { recipe_name: recipe.name });
+    },
+    async deleteRecipe(id){
+      if(!this.user) return;
+      await deleteDoc(doc(collection(db, 'users', this.user.uid, 'recipes'), id));
+      this.logEvent('recipe_deleted');
+    },
+    async signUp(email, password){
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      this.logEvent('sign_up', { method: 'password' });
+      return cred;
+    },
+    async signIn(email, password){
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      this.logEvent('login', { method: 'password' });
+      return cred;
+    },
+    async signInGoogle(){
+      const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+      this.logEvent('login', { method: 'google' });
+      return cred;
+    },
+    async signInGuest(){
+      const cred = await signInAnonymously(auth);
+      this.logEvent('login', { method: 'guest' });
+      return cred;
+    },
+    async signOutUser(){
+      await signOut(auth);
+    },
+    async generateRecipe(prompt){
+      return recipeModel.generateContent(prompt);
+    },
+  };
+  window.dispatchEvent(new Event('chefcloud-ready'));
+
+  let unsubscribeRecipes = null;
+
+  function friendlyAuthError(err){
+    const code = err && err.code || '';
+    if(code.includes('email-already-in-use')) return 'That email is already registered.';
+    if(code.includes('invalid-email')) return 'That email address looks invalid.';
+    if(code.includes('weak-password')) return 'Password should be at least 6 characters.';
+    if(code.includes('user-not-found') || code.includes('wrong-password') || code.includes('invalid-credential')) return 'Incorrect email or password.';
+    if(code.includes('popup-closed-by-user')) return 'Sign-in popup was closed before completing.';
+    if(code.includes('operation-not-allowed')) return 'This sign-in method is not enabled for this project yet.';
+    return 'Something went wrong. Please try again.';
+  }
+
+  function renderAuthBox(mode){
+    const box = document.getElementById('authBox');
+    box.innerHTML = `
+      <h2>👨‍🍳 Chef World</h2>
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab-btn ${mode==='signin'?'active':''}" data-mode="signin">Sign In</button>
+        <button type="button" class="auth-tab-btn ${mode==='signup'?'active':''}" data-mode="signup">Sign Up</button>
+      </div>
+      <div class="auth-error" id="authError"></div>
+      <input type="email" id="authEmail" placeholder="Email" autocomplete="email">
+      <input type="password" id="authPassword" placeholder="Password" autocomplete="${mode==='signup'?'new-password':'current-password'}">
+      <button class="btn" id="authSubmitBtn" style="width:100%;">${mode==='signup' ? 'Create Account' : 'Sign In'}</button>
+      <div class="auth-divider">or</div>
+      <button class="google-btn" id="googleSignInBtn">Continue with Google</button>
+      <button class="google-btn" id="guestSignInBtn" style="margin-top:8px;">Continue as Guest</button>
+    `;
+    box.querySelectorAll('.auth-tab-btn').forEach(b=>{
+      b.addEventListener('click', ()=>renderAuthBox(b.dataset.mode));
+    });
+    document.getElementById('authSubmitBtn').addEventListener('click', async ()=>{
+      const email = document.getElementById('authEmail').value.trim();
+      const password = document.getElementById('authPassword').value;
+      const errEl = document.getElementById('authError');
+      errEl.textContent = '';
+      try{
+        if(mode === 'signup') await window.ChefCloud.signUp(email, password);
+        else await window.ChefCloud.signIn(email, password);
+      }catch(err){ errEl.textContent = friendlyAuthError(err); }
+    });
+    document.getElementById('googleSignInBtn').addEventListener('click', async ()=>{
+      const errEl = document.getElementById('authError');
+      errEl.textContent = '';
+      try{ await window.ChefCloud.signInGoogle(); }
+      catch(err){ errEl.textContent = friendlyAuthError(err); }
+    });
+    document.getElementById('guestSignInBtn').addEventListener('click', async ()=>{
+      const errEl = document.getElementById('authError');
+      errEl.textContent = '';
+      try{ await window.ChefCloud.signInGuest(); }
+      catch(err){ errEl.textContent = friendlyAuthError(err); }
+    });
+  }
+
+  function showAuthOverlay(){
+    document.getElementById('authOverlay').classList.remove('hidden');
+    document.getElementById('accountBar').style.display = 'none';
+    renderAuthBox('signin');
+  }
+  function hideAuthOverlay(user){
+    document.getElementById('authOverlay').classList.add('hidden');
+    const bar = document.getElementById('accountBar');
+    bar.style.display = 'flex';
+    const label = user.isAnonymous ? 'Guest' : (user.email || 'Signed in');
+    document.getElementById('accEmail').textContent = label;
+    document.getElementById('accAvatar').textContent = user.isAnonymous ? '👤' : (user.email || '?')[0].toUpperCase();
+  }
+
+  document.getElementById('signOutBtn').addEventListener('click', ()=>{
+    window.ChefCloud.signOutUser();
+  });
+
+  onAuthStateChanged(auth, (user)=>{
+    window.ChefCloud.user = user;
+    if(unsubscribeRecipes){ unsubscribeRecipes(); unsubscribeRecipes = null; }
+
+    if(!user){
+      showAuthOverlay();
+      window.ChefCloud._recipeCbs.forEach(cb=>cb([]));
+      window.ChefCloud.ready = true;
+      window.ChefCloud._readyCbs.forEach(cb=>cb());
+      window.ChefCloud._readyCbs = [];
+      return;
+    }
+
+    hideAuthOverlay(user);
+    const col = collection(db, 'users', user.uid, 'recipes');
+    unsubscribeRecipes = onSnapshot(col, (snap)=>{
+      const recipes = snap.docs.map(d=>d.data());
+      window.ChefCloud._recipeCbs.forEach(cb=>cb(recipes));
+      if(!window.ChefCloud.ready){
+        window.ChefCloud.ready = true;
+        window.ChefCloud._readyCbs.forEach(cb=>cb());
+        window.ChefCloud._readyCbs = [];
+      }
+    });
+  });
+</script>
+
+<script defer>
 (function(){
   "use strict";
 
-  const STORAGE_KEY = "chef_world_v1";
   let recipes = [];
   let currentRecipeId = null;
   let editingId = null;
@@ -624,16 +940,7 @@
     return formatScaledNumber(newVal) + rest;
   }
 
-  // ---------- persistence ----------
-  function load(){
-    try{
-      const raw = localStorage.getItem(STORAGE_KEY);
-      recipes = raw ? JSON.parse(raw) : [];
-    }catch(e){ recipes = []; }
-  }
-  function save(){
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
-  }
+  // ---------- persistence (Firestore, via window.ChefCloud) ----------
   function uid(){
     return 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
   }
@@ -877,16 +1184,9 @@
       steps,
     };
 
-    if(editingId){
-      const idx = recipes.findIndex(r=>r.id === editingId);
-      if(idx > -1) recipes[idx] = data;
-    } else {
-      recipes.unshift(data);
-    }
-    save();
+    window.ChefCloud.saveRecipe(data);
     editingId = null;
     showView('library');
-    renderGrid();
   });
 
   // ---------- detail ----------
@@ -934,11 +1234,9 @@
     deleteModal.classList.remove('active');
   });
   document.getElementById('confirmDeleteBtn').addEventListener('click', ()=>{
-    recipes = recipes.filter(r=>r.id !== currentRecipeId);
-    save();
+    window.ChefCloud.deleteRecipe(currentRecipeId);
     deleteModal.classList.remove('active');
     showView('library');
-    renderGrid();
   });
 
   // ---------- cook mode ----------
@@ -958,6 +1256,7 @@
     cookState.index = 0;
     cookOverlay.classList.add('active');
     renderCookIngredients();
+    window.ChefCloud.logEvent('cook_mode_started', { recipe_name: r.name });
   });
 
   document.getElementById('cookCloseBtn').addEventListener('click', closeCook);
@@ -1135,6 +1434,7 @@
   function renderDoneScreen(){
     cookProgressFill.style.width = '100%';
     cookProgressLabel.textContent = 'Complete!';
+    window.ChefCloud.logEvent('recipe_completed');
     cookBody.innerHTML = `
       <div class="cook-step-card done-screen">
         <div class="big-emoji">🎉</div>
@@ -1171,9 +1471,89 @@
     setTimeout(()=>wrap.remove(), 4200);
   }
 
+  // ---------- AI import ----------
+  (function(){
+    const toggle   = document.getElementById('aiImportToggle');
+    const panel    = document.getElementById('aiImportPanel');
+    const textarea = document.getElementById('aiImportText');
+    const btn      = document.getElementById('aiImportBtn');
+    const status   = document.getElementById('aiImportStatus');
+
+    toggle.addEventListener('click', ()=>{
+      const open = panel.style.display === 'block';
+      panel.style.display = open ? 'none' : 'block';
+      toggle.textContent = open ? '🤖 Import from text' : '🤖 Import from text ▲';
+    });
+
+    btn.addEventListener('click', async ()=>{
+      const text = textarea.value.trim();
+      if(!text){ status.textContent = 'הדבק טקסט תחילה / Paste text first.'; return; }
+      btn.disabled = true;
+      status.textContent = '⏳ Parsing…';
+      try {
+        const prompt = [
+          'Convert the following recipe text to JSON. Respond ONLY with valid JSON, no markdown fences, no explanation.',
+          '',
+          'Schema (all fields required):',
+          '{"emoji":"🍽️","name":"...","time":"30","servings":"4","tag":"...","notes":"...","ingredients":["200g flour","2 eggs"],"steps":[{"text":"Mix well","minutes":null},{"text":"Bake","minutes":30}]}',
+          '',
+          'Rules:',
+          '- emoji: one relevant food emoji',
+          '- time: total minutes as string',
+          '- servings: number as string',
+          '- tag: one-word category (Dinner / Dessert / Italian / etc.)',
+          '- notes: tips or empty string',
+          '- ingredients: flat string array with quantities',
+          '- steps[].minutes: number when step has waiting time, null otherwise',
+          '',
+          'Recipe text:',
+          text
+        ].join('\n');
+        const result = await window.ChefCloud.generateRecipe(prompt);
+        const raw = result.response.text().replace(/```json|```/g,'').trim();
+        const recipe = JSON.parse(raw);
+
+        document.getElementById('f-emoji').value    = recipe.emoji    || '';
+        document.getElementById('f-name').value     = recipe.name     || '';
+        document.getElementById('f-time').value     = recipe.time     || '';
+        document.getElementById('f-servings').value = recipe.servings || '';
+        document.getElementById('f-tag').value      = recipe.tag      || '';
+        document.getElementById('f-notes').value    = recipe.notes    || '';
+
+        ingList.innerHTML  = '';
+        stepList.innerHTML = '';
+        (recipe.ingredients||[]).forEach(t => addDynRow(ingList, 'Ingredient', t));
+        (recipe.steps||[]).forEach(s => addStepRow(stepList, s.text, s.minutes != null ? String(s.minutes) : ''));
+        if(!recipe.ingredients?.length) addDynRow(ingList, 'Ingredient');
+        if(!recipe.steps?.length)       addStepRow(stepList);
+
+        panel.style.display    = 'none';
+        toggle.textContent     = '🤖 Import from text';
+        status.textContent     = '';
+        textarea.value         = '';
+      } catch(e) {
+        status.textContent = '❌ Failed — try again.';
+        console.error('AI import error:', e);
+      }
+      btn.disabled = false;
+    });
+  })();
+
   // ---------- init ----------
-  load();
-  renderGrid();
+  function registerRecipeListener(){
+    if(!window.ChefCloud) return;
+    window.ChefCloud.onRecipesChange((newRecipes)=>{
+      recipes = newRecipes;
+      renderGrid();
+      if(views.detail.classList.contains('active') && currentRecipeId){
+        const stillExists = recipes.some(r=>r.id === currentRecipeId) || currentRecipeId.startsWith('debug_');
+        if(stillExists) openDetail(currentRecipeId);
+        else { showView('library'); }
+      }
+    });
+  }
+  if(window.ChefCloud) registerRecipeListener();
+  else window.addEventListener('chefcloud-ready', registerRecipeListener, { once:true });
 })();
 </script>
 </body>
