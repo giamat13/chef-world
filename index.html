@@ -566,6 +566,7 @@
 <div class="tabs">
   <button class="tab-btn active" data-view="library">📚 Library</button>
   <button class="tab-btn" data-view="form">➕ New Recipe</button>
+  <button class="tab-btn" data-view="community">🌍 Community</button>
 </div>
 
 <div class="container">
@@ -579,6 +580,19 @@
     <div class="grid" id="recipeGrid"></div>
     <div class="empty" id="emptyState" style="display:none;">
       No recipes yet 🍳<br>Click "New Recipe" to get started
+    </div>
+  </div>
+
+  <!-- COMMUNITY -->
+  <div class="view" id="view-community">
+    <div class="toolbar">
+      <input id="communitySearch" placeholder="Search by name, tag or ingredient...">
+      <select id="communityTagFilter"><option value="">All tags</option></select>
+      <select id="communityLangFilter"><option value="">All languages</option></select>
+    </div>
+    <div class="grid" id="communityGrid"></div>
+    <div class="empty" id="communityEmptyState" style="display:none;">
+      No published recipes yet 🌍
     </div>
   </div>
 
@@ -629,7 +643,7 @@
       <div class="form-row" style="margin-top:4px;">
         <button class="add-row-btn" id="aiImportToggle" type="button" style="width:100%;text-align:left;padding:10px 14px;">🤖 Import from text</button>
         <div id="aiImportPanel" style="display:none;margin-top:10px;">
-          <textarea id="aiImportText" rows="6" placeholder="הדבק כל טקסט מתכון כאן — מאתר, הערות, OCR, וכו'&#10;Paste any recipe text here — from a website, notes, photo OCR, etc." style="width:100%;resize:vertical;"></textarea>
+          <textarea id="aiImportText" rows="6" placeholder="הדבק טקסט מתכון, או קישור לאתר מתכונים&#10;Paste recipe text, or a link to a recipe website" style="width:100%;resize:vertical;"></textarea>
           <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
             <button class="btn" id="aiImportBtn" type="button">✨ Generate</button>
             <span id="aiImportStatus" style="color:var(--muted);font-size:.9rem;"></span>
@@ -653,8 +667,11 @@
       </div>
       <div class="detail-actions">
         <button class="btn" id="startCookBtn">👨‍🍳 Let's Cook</button>
+        <button class="btn secondary small" id="publishRecipeBtn">🌍 Publish</button>
         <button class="btn secondary small" id="editRecipeBtn">Edit</button>
         <button class="btn danger small" id="deleteRecipeBtn">Delete</button>
+        <button class="btn small" id="saveToMineBtn" style="display:none;">📥 Save to My Recipes</button>
+        <button class="btn secondary small" id="shareRecipeBtn" style="display:none;">🔗 Share</button>
       </div>
     </div>
     <div class="detail-cols">
@@ -687,6 +704,29 @@
   </div>
 
   <div id="cookBody"></div>
+</div>
+
+<!-- PUBLISH MODAL -->
+<div class="modal-bg" id="publishModal">
+  <div class="modal-box">
+    <p>Publish this recipe. Pick a language and who can see it:</p>
+    <div class="form-row">
+      <select id="publishLangSelect"></select>
+    </div>
+    <div class="form-row">
+      <select id="publishVisibilitySelect">
+        <option value="public">🌍 Public — listed in Community</option>
+        <option value="unlisted">🔗 Unlisted — only people with the link</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn" id="confirmPublishBtn">Publish</button>
+      <button class="btn secondary small" id="copyLinkBtn" style="display:none;">🔗 Copy link</button>
+      <button class="btn secondary" id="cancelPublishBtn">Cancel</button>
+      <button class="btn danger small" id="unpublishBtn" style="display:none;">Unpublish</button>
+    </div>
+    <div class="auth-error" id="publishStatus" style="color:var(--good);"></div>
+  </div>
 </div>
 
 <!-- CONFIRM DELETE MODAL -->
@@ -725,7 +765,7 @@
     signInAnonymously
   } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
   import {
-    getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot
+    getFirestore, collection, doc, setDoc, deleteDoc, getDoc, onSnapshot
   } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
   import {
     getAnalytics, logEvent, isSupported as analyticsIsSupported
@@ -746,8 +786,21 @@
   const db = getFirestore(app);
   const ai = getAI(app, { backend: new GoogleAIBackend() });
   const recipeModel = getGenerativeModel(ai, { model: 'gemini-3.6-flash' });
+  // Same model, but with the URL-context tool enabled so it can fetch and
+  // read a pasted recipe link itself instead of only seeing raw text.
+  const recipeModelFromUrl = getGenerativeModel(ai, {
+    model: 'gemini-3.6-flash',
+    tools: [{ urlContext: {} }],
+  });
   let analytics = null;
   analyticsIsSupported().then(ok=>{ if(ok) analytics = getAnalytics(app); }).catch(()=>{});
+
+  function maskEmail(email){
+    if(!email) return 'Chef';
+    const [local] = email.split('@');
+    if(local.length <= 2) return local[0] + '***';
+    return local[0] + '***' + local[local.length-1];
+  }
 
   // ---- bridge object consumed by the classic script below ----
   window.ChefCloud = {
@@ -755,8 +808,10 @@
     user: null,
     _readyCbs: [],
     _recipeCbs: [],
+    _publicCbs: [],
     onReady(cb){ this.ready ? cb() : this._readyCbs.push(cb); },
     onRecipesChange(cb){ this._recipeCbs.push(cb); },
+    onPublicRecipesChange(cb){ this._publicCbs.push(cb); },
     logEvent(name, params){ if(analytics) try{ logEvent(analytics, name, params||{}); }catch(e){} },
     async saveRecipe(recipe){
       if(!this.user) return;
@@ -792,13 +847,41 @@
     async signOutUser(){
       await signOut(auth);
     },
-    async generateRecipe(prompt){
-      return recipeModel.generateContent(prompt);
+    async publishRecipe(recipe, language, visibility){
+      if(!this.user) return;
+      const pubId = `${this.user.uid}_${recipe.id}`;
+      const ref = doc(collection(db, 'publicRecipes'), pubId);
+      await setDoc(ref, {
+        ...recipe,
+        pubId,
+        sourceId: recipe.id,
+        ownerId: this.user.uid,
+        ownerLabel: this.user.isAnonymous ? 'Guest' : maskEmail(this.user.email),
+        language,
+        visibility: visibility || 'public',
+        publishedAt: Date.now(),
+      });
+      this.logEvent('recipe_published', { recipe_name: recipe.name, language, visibility });
+      return pubId;
+    },
+    async unpublishRecipe(recipeId){
+      if(!this.user) return;
+      const pubId = `${this.user.uid}_${recipeId}`;
+      await deleteDoc(doc(collection(db, 'publicRecipes'), pubId));
+      this.logEvent('recipe_unpublished');
+    },
+    async getPublicRecipeById(pubId){
+      const snap = await getDoc(doc(collection(db, 'publicRecipes'), pubId));
+      return snap.exists() ? snap.data() : null;
+    },
+    async generateRecipe(prompt, fromUrl){
+      return (fromUrl ? recipeModelFromUrl : recipeModel).generateContent(prompt);
     },
   };
   window.dispatchEvent(new Event('chefcloud-ready'));
 
   let unsubscribeRecipes = null;
+  let unsubscribePublicRecipes = null;
 
   function friendlyAuthError(err){
     const code = err && err.code || '';
@@ -875,10 +958,12 @@
   onAuthStateChanged(auth, (user)=>{
     window.ChefCloud.user = user;
     if(unsubscribeRecipes){ unsubscribeRecipes(); unsubscribeRecipes = null; }
+    if(unsubscribePublicRecipes){ unsubscribePublicRecipes(); unsubscribePublicRecipes = null; }
 
     if(!user){
       showAuthOverlay();
       window.ChefCloud._recipeCbs.forEach(cb=>cb([]));
+      window.ChefCloud._publicCbs.forEach(cb=>cb([]));
       window.ChefCloud.ready = true;
       window.ChefCloud._readyCbs.forEach(cb=>cb());
       window.ChefCloud._readyCbs = [];
@@ -896,6 +981,10 @@
         window.ChefCloud._readyCbs = [];
       }
     });
+    unsubscribePublicRecipes = onSnapshot(collection(db, 'publicRecipes'), (snap)=>{
+      const publicRecipes = snap.docs.map(d=>d.data());
+      window.ChefCloud._publicCbs.forEach(cb=>cb(publicRecipes));
+    });
   });
 </script>
 
@@ -904,8 +993,12 @@
   "use strict";
 
   let recipes = [];
+  let publicRecipes = [];
   let currentRecipeId = null;
+  let currentDetailSource = 'mine'; // 'mine' | 'public'
+  let currentPublicRecipe = null;
   let editingId = null;
+  const LANGUAGES = ['English','Hebrew','Spanish','French','German','Italian','Portuguese','Arabic','Russian','Chinese','Japanese','Other'];
   // cook flow: phase is 'ingredients' or 'steps'
   let cookState = { ingredients: [], steps: [], phase: 'ingredients', index: 0, timerInterval: null, baseServings: 1, servings: 1 };
 
@@ -950,6 +1043,7 @@
     library: document.getElementById('view-library'),
     form: document.getElementById('view-form'),
     detail: document.getElementById('view-detail'),
+    community: document.getElementById('view-community'),
   };
   const tabBtns = document.querySelectorAll('.tab-btn');
   function showView(name){
@@ -960,6 +1054,7 @@
   tabBtns.forEach(btn=>{
     btn.addEventListener('click', ()=>{
       if(btn.dataset.view === 'form'){ openForm(null); }
+      else if(btn.dataset.view === 'community'){ showView('community'); renderCommunityGrid(); }
       else { showView(btn.dataset.view); renderGrid(); }
     });
   });
@@ -1087,6 +1182,112 @@
     return d.innerHTML;
   }
 
+  // ---------- community (public library) ----------
+  const communityGrid = document.getElementById('communityGrid');
+  const communityEmptyState = document.getElementById('communityEmptyState');
+  const communitySearch = document.getElementById('communitySearch');
+  const communityTagFilter = document.getElementById('communityTagFilter');
+  const communityLangFilter = document.getElementById('communityLangFilter');
+  const LANG_FILTER_KEY = 'cw_lang_filter';
+
+  function populateLangSelects(){
+    const publishSelect = document.getElementById('publishLangSelect');
+    publishSelect.innerHTML = LANGUAGES.map(l=>`<option value="${l}">${l}</option>`).join('');
+  }
+  populateLangSelects();
+
+  function listedPublicRecipes(){
+    return publicRecipes.filter(r=>r.visibility !== 'unlisted');
+  }
+  function refreshCommunityTagFilter(){
+    const tags = [...new Set(listedPublicRecipes().map(r=>r.tag).filter(Boolean))];
+    const current = communityTagFilter.value;
+    communityTagFilter.innerHTML = '<option value="">All tags</option>' +
+      tags.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    communityTagFilter.value = tags.includes(current) ? current : '';
+  }
+  function refreshCommunityLangFilter(){
+    const langs = [...new Set(listedPublicRecipes().map(r=>r.language).filter(Boolean))];
+    const saved = localStorage.getItem(LANG_FILTER_KEY) || '';
+    const current = communityLangFilter.dataset.initialized ? communityLangFilter.value : saved;
+    communityLangFilter.dataset.initialized = '1';
+    communityLangFilter.innerHTML = '<option value="">All languages</option>' +
+      langs.map(l=>`<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+    communityLangFilter.value = langs.includes(current) ? current : '';
+  }
+
+  function renderCommunityGrid(){
+    refreshCommunityTagFilter();
+    refreshCommunityLangFilter();
+    const q = communitySearch.value.trim().toLowerCase();
+    const tag = communityTagFilter.value;
+    const lang = communityLangFilter.value;
+    const filtered = listedPublicRecipes().filter(r=>{
+      const matchesTag = !tag || r.tag === tag;
+      const matchesLang = !lang || r.language === lang;
+      const hay = (r.name + ' ' + (r.tag||'') + ' ' + r.ingredients.map(i=>i.text).join(' ')).toLowerCase();
+      const matchesQ = !q || hay.includes(q);
+      return matchesTag && matchesLang && matchesQ;
+    });
+    communityGrid.innerHTML = '';
+    if(filtered.length === 0){
+      communityEmptyState.style.display = 'block';
+      return;
+    }
+    communityEmptyState.style.display = 'none';
+    filtered.forEach(r=>{
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="emoji">${escapeHtml(r.emoji || '🍽️')}</div>
+        <h3>${escapeHtml(r.name)}</h3>
+        <div class="meta">
+          ${r.time ? `<span>⏱ ${escapeHtml(String(r.time))} min</span>` : ''}
+          ${r.servings ? `<span>🍴 ${escapeHtml(String(r.servings))} servings</span>` : ''}
+          ${r.language ? `<span>🌐 ${escapeHtml(r.language)}</span>` : ''}
+        </div>
+        <div style="color:var(--muted);font-size:.8rem;margin-top:4px;">by ${escapeHtml(r.ownerLabel || 'Chef')}</div>
+        ${r.tag ? `<span class="tag">${escapeHtml(r.tag)}</span>` : ''}
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn small save-mine-btn" type="button">📥 Save</button>
+          <button class="btn secondary small share-mine-btn" type="button">🔗 Share</button>
+        </div>
+      `;
+      card.addEventListener('click', ()=>openCommunityDetail(r));
+      card.querySelector('.save-mine-btn').addEventListener('click', (e)=>{
+        e.stopPropagation();
+        saveCopyToMine(r);
+      });
+      card.querySelector('.share-mine-btn').addEventListener('click', async (e)=>{
+        e.stopPropagation();
+        await copyToClipboard(shareLinkFor(r.pubId));
+      });
+      communityGrid.appendChild(card);
+    });
+  }
+  communitySearch.addEventListener('input', renderCommunityGrid);
+  communityTagFilter.addEventListener('change', renderCommunityGrid);
+  communityLangFilter.addEventListener('change', ()=>{
+    localStorage.setItem(LANG_FILTER_KEY, communityLangFilter.value);
+    renderCommunityGrid();
+  });
+
+  function shareLinkFor(pubId){
+    return `${location.origin}${location.pathname}?r=${encodeURIComponent(pubId)}`;
+  }
+  async function copyToClipboard(text){
+    try{ await navigator.clipboard.writeText(text); return true; }
+    catch(e){ window.prompt('Copy this link:', text); return false; }
+  }
+
+  function saveCopyToMine(r){
+    window.ChefCloud.saveRecipe({
+      id: uid(),
+      emoji: r.emoji, name: r.name, time: r.time, servings: r.servings,
+      tag: r.tag, notes: r.notes, ingredients: r.ingredients, steps: r.steps,
+    });
+  }
+
   // ---------- form ----------
   const ingList = document.getElementById('ingList');
   const stepList = document.getElementById('stepList');
@@ -1190,15 +1391,13 @@
   });
 
   // ---------- detail ----------
-  function openDetail(id){
-    const r = findRecipeById(id);
-    if(!r) return;
-    currentRecipeId = id;
+  function fillDetailView(r, extraMeta){
     document.getElementById('d-title').textContent = `${r.emoji || ''} ${r.name}`;
     const metaParts = [];
     if(r.time) metaParts.push(`⏱ ${r.time} min`);
     if(r.servings) metaParts.push(`🍴 ${r.servings} servings`);
     if(r.tag) metaParts.push(`🏷 ${r.tag}`);
+    if(extraMeta) metaParts.push(...extraMeta);
     document.getElementById('d-meta').textContent = metaParts.join('   •   ');
 
     document.getElementById('d-ingredients').innerHTML = r.ingredients.map(i=>
@@ -1214,15 +1413,49 @@
     } else {
       notesWrap.style.display = 'none';
     }
+  }
+
+  function updateDetailActionsVisibility(){
+    const isPublic = currentDetailSource === 'public';
+    document.getElementById('publishRecipeBtn').style.display = isPublic ? 'none' : '';
+    document.getElementById('editRecipeBtn').style.display = isPublic ? 'none' : '';
+    document.getElementById('deleteRecipeBtn').style.display = isPublic ? 'none' : '';
+    document.getElementById('saveToMineBtn').style.display = isPublic ? '' : 'none';
+    document.getElementById('shareRecipeBtn').style.display = isPublic ? '' : 'none';
+  }
+
+  function openDetail(id){
+    const r = findRecipeById(id);
+    if(!r) return;
+    currentRecipeId = id;
+    currentDetailSource = 'mine';
+    currentPublicRecipe = null;
+    fillDetailView(r);
+    updateDetailActionsVisibility();
+    showView('detail');
+  }
+
+  function openCommunityDetail(pub){
+    currentRecipeId = pub.sourceId;
+    currentDetailSource = 'public';
+    currentPublicRecipe = pub;
+    fillDetailView(pub, [`🌐 ${pub.language}`, `by ${pub.ownerLabel || 'Chef'}`]);
+    updateDetailActionsVisibility();
     showView('detail');
   }
 
   document.getElementById('backToLibrary').addEventListener('click', ()=>{
-    showView('library'); renderGrid();
+    if(currentDetailSource === 'public'){ showView('community'); renderCommunityGrid(); }
+    else { showView('library'); renderGrid(); }
   });
   document.getElementById('editRecipeBtn').addEventListener('click', ()=>{
     const r = findRecipeById(currentRecipeId);
     if(r) openForm(r);
+  });
+  document.getElementById('saveToMineBtn').addEventListener('click', ()=>{
+    if(!currentPublicRecipe) return;
+    saveCopyToMine(currentPublicRecipe);
+    showView('library'); renderGrid();
   });
 
   // delete flow
@@ -1239,6 +1472,53 @@
     showView('library');
   });
 
+  // publish flow
+  const publishModal = document.getElementById('publishModal');
+  const publishStatus = document.getElementById('publishStatus');
+  function findMyPublicEntry(recipeId){
+    const myUid = window.ChefCloud.user && window.ChefCloud.user.uid;
+    return publicRecipes.find(p=>p.sourceId === recipeId && p.ownerId === myUid);
+  }
+  document.getElementById('publishRecipeBtn').addEventListener('click', ()=>{
+    const r = findRecipeById(currentRecipeId);
+    if(!r) return;
+    const existing = findMyPublicEntry(r.id);
+    document.getElementById('publishLangSelect').value = existing ? existing.language : LANGUAGES[0];
+    document.getElementById('publishVisibilitySelect').value = existing ? (existing.visibility || 'public') : 'public';
+    document.getElementById('unpublishBtn').style.display = existing ? '' : 'none';
+    document.getElementById('copyLinkBtn').style.display = existing ? '' : 'none';
+    publishStatus.textContent = '';
+    publishModal.classList.add('active');
+  });
+  document.getElementById('cancelPublishBtn').addEventListener('click', ()=>{
+    publishModal.classList.remove('active');
+  });
+  document.getElementById('confirmPublishBtn').addEventListener('click', async ()=>{
+    const r = findRecipeById(currentRecipeId);
+    if(!r) return;
+    const language = document.getElementById('publishLangSelect').value;
+    const visibility = document.getElementById('publishVisibilitySelect').value;
+    const pubId = await window.ChefCloud.publishRecipe(r, language, visibility);
+    document.getElementById('unpublishBtn').style.display = '';
+    document.getElementById('copyLinkBtn').style.display = '';
+    publishStatus.textContent = '✅ Published! Click "Copy link" to share it.';
+    publishStatus.dataset.pubId = pubId;
+  });
+  document.getElementById('copyLinkBtn').addEventListener('click', async ()=>{
+    const pubId = `${window.ChefCloud.user.uid}_${currentRecipeId}`;
+    const ok = await copyToClipboard(shareLinkFor(pubId));
+    publishStatus.textContent = ok ? '🔗 Link copied to clipboard!' : '🔗 Link ready above.';
+  });
+  document.getElementById('unpublishBtn').addEventListener('click', ()=>{
+    window.ChefCloud.unpublishRecipe(currentRecipeId);
+    publishModal.classList.remove('active');
+  });
+  document.getElementById('shareRecipeBtn').addEventListener('click', async ()=>{
+    if(!currentPublicRecipe) return;
+    const ok = await copyToClipboard(shareLinkFor(currentPublicRecipe.pubId));
+    alert(ok ? 'Link copied to clipboard!' : 'Link shown in the prompt — copy it manually.');
+  });
+
   // ---------- cook mode ----------
   const cookOverlay = document.getElementById('cookOverlay');
   const cookBody = document.getElementById('cookBody');
@@ -1246,7 +1526,7 @@
   const cookProgressLabel = document.getElementById('cookProgressLabel');
 
   document.getElementById('startCookBtn').addEventListener('click', ()=>{
-    const r = findRecipeById(currentRecipeId);
+    const r = currentDetailSource === 'public' ? currentPublicRecipe : findRecipeById(currentRecipeId);
     if(!r || !r.steps.length) return;
     cookState.ingredients = r.ingredients.map(i=>i.text);
     cookState.steps = r.steps; // [{text, seconds}]
@@ -1489,10 +1769,13 @@
       const text = textarea.value.trim();
       if(!text){ status.textContent = 'הדבק טקסט תחילה / Paste text first.'; return; }
       btn.disabled = true;
-      status.textContent = '⏳ Parsing…';
       try {
+        const isUrl = /^https?:\/\/\S+$/i.test(text);
         const prompt = [
-          'Convert the following recipe text to JSON. Respond ONLY with valid JSON, no markdown fences, no explanation.',
+          isUrl
+            ? `Open this URL and read the recipe on that page: ${text}`
+            : 'Convert the following recipe text to JSON.',
+          'Respond ONLY with valid JSON, no markdown fences, no explanation.',
           '',
           'Schema (all fields required):',
           '{"emoji":"🍽️","name":"...","time":"30","servings":"4","tag":"...","notes":"...","ingredients":["200g flour","2 eggs"],"steps":[{"text":"Mix well","minutes":null},{"text":"Bake","minutes":30}]}',
@@ -1505,11 +1788,10 @@
           '- notes: tips or empty string',
           '- ingredients: flat string array with quantities',
           '- steps[].minutes: number when step has waiting time, null otherwise',
-          '',
-          'Recipe text:',
-          text
+          ...(isUrl ? [] : ['', 'Recipe text:', text])
         ].join('\n');
-        const result = await window.ChefCloud.generateRecipe(prompt);
+        status.textContent = isUrl ? '⏳ Fetching page…' : '⏳ Parsing…';
+        const result = await window.ChefCloud.generateRecipe(prompt, isUrl);
         const raw = result.response.text().replace(/```json|```/g,'').trim();
         const recipe = JSON.parse(raw);
 
@@ -1539,21 +1821,45 @@
     });
   })();
 
+  // ---------- shared link ----------
+  async function openSharedLinkIfPresent(){
+    const pubId = new URLSearchParams(location.search).get('r');
+    if(!pubId) return;
+    // ponytail: requires already being signed in; a logged-out visitor who
+    // signs in from the auth overlay won't be replayed back to this link.
+    if(!window.ChefCloud.user) return;
+    history.replaceState(null, '', location.pathname);
+    try{
+      const pub = await window.ChefCloud.getPublicRecipeById(pubId);
+      if(pub) openCommunityDetail(pub);
+      else alert('This recipe link is no longer available.');
+    }catch(e){
+      console.error('Failed to open shared recipe:', e);
+    }
+  }
+
   // ---------- init ----------
   function registerRecipeListener(){
     if(!window.ChefCloud) return;
     window.ChefCloud.onRecipesChange((newRecipes)=>{
       recipes = newRecipes;
       renderGrid();
-      if(views.detail.classList.contains('active') && currentRecipeId){
+      if(views.detail.classList.contains('active') && currentDetailSource === 'mine' && currentRecipeId){
         const stillExists = recipes.some(r=>r.id === currentRecipeId) || currentRecipeId.startsWith('debug_');
         if(stillExists) openDetail(currentRecipeId);
         else { showView('library'); }
       }
     });
+    window.ChefCloud.onPublicRecipesChange((newPublicRecipes)=>{
+      publicRecipes = newPublicRecipes;
+      if(views.community.classList.contains('active')) renderCommunityGrid();
+    });
   }
   if(window.ChefCloud) registerRecipeListener();
   else window.addEventListener('chefcloud-ready', registerRecipeListener, { once:true });
+  window.ChefCloud
+    ? window.ChefCloud.onReady(openSharedLinkIfPresent)
+    : window.addEventListener('chefcloud-ready', ()=>window.ChefCloud.onReady(openSharedLinkIfPresent), { once:true });
 })();
 </script>
 </body>
