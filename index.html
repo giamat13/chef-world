@@ -1487,6 +1487,7 @@
     document.getElementById('publishVisibilitySelect').value = existing ? (existing.visibility || 'public') : 'public';
     document.getElementById('unpublishBtn').style.display = existing ? '' : 'none';
     document.getElementById('copyLinkBtn').style.display = existing ? '' : 'none';
+    document.getElementById('cancelPublishBtn').textContent = 'Cancel';
     publishStatus.textContent = '';
     publishModal.classList.add('active');
   });
@@ -1501,6 +1502,7 @@
     const pubId = await window.ChefCloud.publishRecipe(r, language, visibility);
     document.getElementById('unpublishBtn').style.display = '';
     document.getElementById('copyLinkBtn').style.display = '';
+    document.getElementById('cancelPublishBtn').textContent = 'Close';
     publishStatus.textContent = '✅ Published! Click "Copy link" to share it.';
     publishStatus.dataset.pubId = pubId;
   });
