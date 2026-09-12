@@ -160,6 +160,14 @@
   .dyn-list{display:flex;flex-direction:column;gap:8px;}
   .dyn-row{display:flex;gap:8px;align-items:center;}
   .dyn-row input{flex:1;}
+  .dyn-row.section-row{margin-top:6px;}
+  .dyn-row.section-row input{
+    font-weight:700;
+    color:var(--accent2);
+    border-color:var(--accent);
+    background:rgba(232,151,74,.08);
+  }
+  .add-row-btn.section-add{color:var(--muted);border-color:var(--muted);}
   .remove-x{
     background:var(--panel2);
     border:1px solid var(--line);
@@ -237,6 +245,13 @@
     justify-content:space-between;
   }
   .ing-list li:last-child{border-bottom:none;}
+  .ing-list li.ing-section-header{
+    border-bottom:none;
+    padding:14px 0 4px;
+    font-weight:700;
+    color:var(--accent2);
+  }
+  .ing-list li.ing-section-header:first-child{padding-top:0;}
   .steps-list{padding-inline-start:20px;}
   .steps-list li{margin-bottom:10px;line-height:1.5;}
 
@@ -416,6 +431,14 @@
     animation:ingIn .35s ease both;
   }
   .cook-ing-list li:last-child{border-bottom:none;}
+  .cook-ing-list li.cook-ing-section{
+    border-bottom:none;
+    padding:14px 4px 2px;
+    font-weight:700;
+    color:var(--accent2);
+    font-size:.95rem;
+  }
+  .cook-ing-list li.cook-ing-section:first-child{padding-top:4px;}
   @keyframes ingIn{
     from{opacity:0;transform:translateX(-8px);}
     to{opacity:1;transform:translateX(0);}
@@ -626,7 +649,10 @@
       <div class="form-row">
         <label>Ingredients</label>
         <div class="dyn-list" id="ingList"></div>
-        <button class="add-row-btn" id="addIng" type="button">+ Add ingredient</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="add-row-btn" id="addIng" type="button">+ Add ingredient</button>
+          <button class="add-row-btn section-add" id="addIngSection" type="button">+ Add section (e.g. Dough, Filling)</button>
+        </div>
       </div>
 
       <div class="form-row">
@@ -1153,7 +1179,7 @@
     const source = isDebug ? DEBUG_RECIPES : recipes;
     const filtered = source.filter(r=>{
       const matchesTag = !tag || r.tag === tag;
-      const hay = (r.name + ' ' + (r.tag||'') + ' ' + r.ingredients.map(i=>i.text).join(' ')).toLowerCase();
+      const hay = (r.name + ' ' + (r.tag||'') + ' ' + r.ingredients.map(i=>i.text||i.section||'').join(' ')).toLowerCase();
       const matchesQ = isDebug || !q || hay.includes(q);
       return matchesTag && matchesQ;
     });
@@ -1234,7 +1260,7 @@
     const filtered = listedPublicRecipes().filter(r=>{
       const matchesTag = !tag || r.tag === tag;
       const matchesLang = !lang || r.language === lang;
-      const hay = (r.name + ' ' + (r.tag||'') + ' ' + r.ingredients.map(i=>i.text).join(' ')).toLowerCase();
+      const hay = (r.name + ' ' + (r.tag||'') + ' ' + r.ingredients.map(i=>i.text||i.section||'').join(' ')).toLowerCase();
       const matchesQ = !q || hay.includes(q);
       return matchesTag && matchesLang && matchesQ;
     });
@@ -1305,13 +1331,25 @@
   function addDynRow(container, placeholder, value=''){
     const row = document.createElement('div');
     row.className = 'dyn-row';
+    row.dataset.type = 'ingredient';
     row.innerHTML = `<input value="${escapeHtml(value)}" placeholder="${placeholder}">
       <button type="button" class="remove-x">✕</button>`;
     row.querySelector('.remove-x').addEventListener('click', ()=>row.remove());
     container.appendChild(row);
     return row;
   }
+  function addSectionRow(container, value=''){
+    const row = document.createElement('div');
+    row.className = 'dyn-row section-row';
+    row.dataset.type = 'section';
+    row.innerHTML = `<input value="${escapeHtml(value)}" placeholder="Section name, e.g. Dough">
+      <button type="button" class="remove-x">✕</button>`;
+    row.querySelector('.remove-x').addEventListener('click', ()=>row.remove());
+    container.appendChild(row);
+    return row;
+  }
   document.getElementById('addIng').addEventListener('click', ()=>addDynRow(ingList, 'e.g. 200g flour'));
+  document.getElementById('addIngSection').addEventListener('click', ()=>addSectionRow(ingList));
   document.getElementById('addStep').addEventListener('click', ()=>addStepRow(stepList));
 
   function addStepRow(container, textVal='', minutesVal=''){
@@ -1352,7 +1390,9 @@
       document.getElementById('f-notes').value = recipe.notes || '';
       ingList.innerHTML = '';
       stepList.innerHTML = '';
-      (recipe.ingredients||[]).forEach(i=>addDynRow(ingList,'Ingredient', i.text));
+      (recipe.ingredients||[]).forEach(i=> i.section != null
+        ? addSectionRow(ingList, i.section)
+        : addDynRow(ingList,'Ingredient', i.text));
       (recipe.steps||[]).forEach(s=>addStepRow(stepList, s.text, s.seconds ? String(s.seconds/60) : ''));
       if(!recipe.ingredients?.length) addDynRow(ingList,'Ingredient');
       if(!recipe.steps?.length) addStepRow(stepList);
@@ -1369,8 +1409,10 @@
   document.getElementById('saveRecipeBtn').addEventListener('click', ()=>{
     const name = document.getElementById('f-name').value.trim();
     if(!name){ alert('Please enter a recipe name'); return; }
-    const ingredients = [...ingList.querySelectorAll('input')]
-      .map(i=>i.value.trim()).filter(Boolean).map(text=>({text}));
+    const ingredients = [...ingList.querySelectorAll('.dyn-row')]
+      .map(row=>({ type: row.dataset.type, value: row.querySelector('input').value.trim() }))
+      .filter(r=>r.value)
+      .map(r=> r.type === 'section' ? { section: r.value } : { text: r.value });
     const steps = [...stepList.querySelectorAll('.step-row')]
       .map(row=>{
         const text = row.querySelector('.step-text').value.trim();
@@ -1410,7 +1452,9 @@
     document.getElementById('d-meta').textContent = metaParts.join('   •   ');
 
     document.getElementById('d-ingredients').innerHTML = r.ingredients.map(i=>
-      `<li><span>${escapeHtml(i.text)}</span></li>`).join('') || '<li>—</li>';
+      i.section != null
+        ? `<li class="ing-section-header">${escapeHtml(i.section)}</li>`
+        : `<li><span>${escapeHtml(i.text)}</span></li>`).join('') || '<li>—</li>';
 
     document.getElementById('d-steps').innerHTML = r.steps.map(s=>
       `<li>${escapeHtml(s.text)}</li>`).join('');
@@ -1539,7 +1583,7 @@
   document.getElementById('startCookBtn').addEventListener('click', ()=>{
     const r = currentDetailSource === 'public' ? currentPublicRecipe : findRecipeById(currentRecipeId);
     if(!r || !r.steps.length) return;
-    cookState.ingredients = r.ingredients.map(i=>i.text);
+    cookState.ingredients = r.ingredients;
     cookState.steps = r.steps; // [{text, seconds}]
     cookState.baseServings = parseFloat(r.servings) > 0 ? parseFloat(r.servings) : 1;
     cookState.servings = cookState.baseServings;
@@ -1573,11 +1617,12 @@
           <button type="button" class="serv-btn" id="servUp">+</button>
         </div>
         <ul class="cook-ing-list" id="cookIngList">
-          ${cookState.ingredients.map((text,idx)=>`
-            <li style="animation-delay:${idx*0.05}s">
-              <input type="checkbox" data-idx="${idx}">
-              <span>${escapeHtml(scaleIngredientText(text, factor))}</span>
-            </li>`).join('')}
+          ${cookState.ingredients.map((item,idx)=> item.section != null
+            ? `<li class="cook-ing-section" style="animation-delay:${idx*0.05}s">${escapeHtml(item.section)}</li>`
+            : `<li style="animation-delay:${idx*0.05}s">
+                <input type="checkbox" data-idx="${idx}">
+                <span>${escapeHtml(scaleIngredientText(item.text, factor))}</span>
+              </li>`).join('')}
         </ul>
         <div class="cook-nav">
           <button class="btn" id="startStepsBtn">Start Cooking →</button>
@@ -1816,6 +1861,7 @@
         ingList.innerHTML  = '';
         stepList.innerHTML = '';
         (recipe.ingredients||[]).forEach(t => addDynRow(ingList, 'Ingredient', t));
+        // (AI import currently returns a flat ingredient list; add sections manually afterward if needed)
         (recipe.steps||[]).forEach(s => addStepRow(stepList, s.text, s.minutes != null ? String(s.minutes) : ''));
         if(!recipe.ingredients?.length) addDynRow(ingList, 'Ingredient');
         if(!recipe.steps?.length)       addStepRow(stepList);
