@@ -641,13 +641,28 @@
           <input id="f-cook-time" type="number" min="0" placeholder="30">
         </div>
       </div>
-      <div class="form-row">
-        <label>Servings</label>
-        <input id="f-servings" type="number" min="1" placeholder="4">
+      <div class="two-col">
+        <div class="form-row">
+          <label>Amount</label>
+          <input id="f-servings" type="number" min="1" placeholder="4">
+        </div>
+        <div class="form-row">
+          <label>Amount unit</label>
+          <input id="f-serving-unit" placeholder="servings, cookies, pieces...">
+        </div>
       </div>
       <div class="form-row">
-        <label>Tag (e.g. Dessert / Italian / Vegan)</label>
-        <input id="f-tag" placeholder="Dinner">
+        <label>Tags (separate with commas)</label>
+        <input id="f-tags" placeholder="Vegetarian, Italian, Quick">
+      </div>
+      <div class="form-row">
+        <label>Difficulty</label>
+        <select id="f-difficulty">
+          <option value="">Choose difficulty</option>
+          <option value="Easy">Easy</option>
+          <option value="Medium">Medium</option>
+          <option value="Hard">Hard</option>
+        </select>
       </div>
 
       <div class="form-row">
@@ -684,6 +699,78 @@
       <div style="display:flex;gap:10px;margin-top:10px;">
         <button class="btn" id="saveRecipeBtn">💾 Save Recipe</button>
         <button class="btn secondary" id="cancelFormBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MANUAL TRANSLATION -->
+  <div class="view" id="view-translation">
+    <div class="form-panel">
+      <h2>Manual translation</h2>
+      <p id="translationLanguageLabel" style="color:var(--muted);margin-top:-8px;"></p>
+      <div class="form-row">
+        <label>Emoji</label>
+        <input id="t-emoji" placeholder="🍕 🍰 🥗 ..." maxlength="4">
+      </div>
+      <div class="form-row">
+        <label>Recipe name</label>
+        <input id="t-name" placeholder="Recipe name">
+      </div>
+      <div class="two-col">
+        <div class="form-row">
+          <label>Prep time (minutes)</label>
+          <input id="t-prep-time" type="number" min="0">
+        </div>
+        <div class="form-row">
+          <label>Cook time (minutes)</label>
+          <input id="t-cook-time" type="number" min="0">
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="form-row">
+          <label>Amount</label>
+          <input id="t-servings" type="number" min="1">
+        </div>
+        <div class="form-row">
+          <label>Amount unit</label>
+          <input id="t-serving-unit" placeholder="servings, cookies, pieces...">
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="form-row">
+          <label>Tags (separate with commas)</label>
+          <input id="t-tags" placeholder="Vegetarian, Italian">
+        </div>
+        <div class="form-row">
+          <label>Difficulty</label>
+          <select id="t-difficulty">
+            <option value="">Choose difficulty</option>
+            <option value="Easy">Easy</option>
+            <option value="Medium">Medium</option>
+            <option value="Hard">Hard</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Ingredients</label>
+        <div class="dyn-list" id="t-ingList"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="add-row-btn" id="t-addIng" type="button">+ Add ingredient</button>
+          <button class="add-row-btn section-add" id="t-addIngSection" type="button">+ Add section</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Steps</label>
+        <div class="dyn-list" id="t-stepList"></div>
+        <button class="add-row-btn" id="t-addStep" type="button">+ Add step</button>
+      </div>
+      <div class="form-row">
+        <label>Notes</label>
+        <textarea id="t-notes" rows="3" placeholder="Translated notes"></textarea>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:10px;">
+        <button class="btn" id="showTranslationBtn">🌐 Show translation</button>
+        <button class="btn secondary" id="cancelTranslationBtn">Cancel</button>
       </div>
     </div>
   </div>
@@ -782,33 +869,6 @@
       <button class="btn secondary" id="cancelLanguageBtn">Cancel</button>
     </div>
     <div class="auth-error" id="translationStatus"></div>
-  </div>
-</div>
-
-<!-- MANUAL TRANSLATION MODAL -->
-<div class="modal-bg" id="manualTranslationModal">
-  <div class="modal-box" style="max-width:600px;width:100%;text-align:left;">
-    <h3>Manual translation</h3>
-    <div class="form-row">
-      <label>Recipe name</label>
-      <input id="translationName" style="width:100%;">
-    </div>
-    <div class="form-row">
-      <label>Ingredients (one per line)</label>
-      <textarea id="translationIngredients" rows="6" style="width:100%;resize:vertical;"></textarea>
-    </div>
-    <div class="form-row">
-      <label>Steps (one per line)</label>
-      <textarea id="translationSteps" rows="6" style="width:100%;resize:vertical;"></textarea>
-    </div>
-    <div class="form-row">
-      <label>Notes</label>
-      <textarea id="translationNotes" rows="3" style="width:100%;resize:vertical;"></textarea>
-    </div>
-    <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
-      <button class="btn" id="showManualTranslationBtn">Show translation</button>
-      <button class="btn secondary" id="cancelManualTranslationBtn">Cancel</button>
-    </div>
   </div>
 </div>
 
@@ -1075,7 +1135,7 @@
   let editingId = null;
   const LANGUAGES = ['English','Hebrew','Spanish','French','German','Italian','Portuguese','Arabic','Russian','Chinese','Japanese','Other'];
   // cook flow: phase is 'ingredients' or 'steps'
-  let cookState = { ingredients: [], steps: [], phase: 'ingredients', index: 0, timerInterval: null, baseServings: 1, servings: 1 };
+  let cookState = { ingredients: [], steps: [], phase: 'ingredients', index: 0, timerInterval: null, baseServings: 1, servings: 1, servingUnit: 'servings' };
 
   // ---------- quantity scaling ----------
   const UNICODE_FRACTIONS = {
@@ -1138,6 +1198,7 @@
   const views = {
     library: document.getElementById('view-library'),
     form: document.getElementById('view-form'),
+    translation: document.getElementById('view-translation'),
     detail: document.getElementById('view-detail'),
     community: document.getElementById('view-community'),
   };
@@ -1224,7 +1285,7 @@
   const filterTag = document.getElementById('filterTag');
 
   function refreshTagFilter(){
-    const tags = [...new Set(recipes.map(r=>r.tag).filter(Boolean))];
+    const tags = [...new Set(recipes.flatMap(recipeTags))];
     const current = filterTag.value;
     filterTag.innerHTML = '<option value="">All tags</option>' +
       tags.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
@@ -1239,8 +1300,8 @@
     const tag = filterTag.value;
     const source = isDebug ? DEBUG_RECIPES : recipes;
     const filtered = source.filter(r=>{
-      const matchesTag = !tag || r.tag === tag;
-      const hay = (r.name + ' ' + (r.tag||'') + ' ' + r.ingredients.map(i=>ingredientDisplay(i)||i.section||'').join(' ')).toLowerCase();
+      const matchesTag = !tag || recipeTags(r).includes(tag);
+      const hay = (r.name + ' ' + tagsText(r) + ' ' + r.ingredients.map(i=>ingredientDisplay(i)||i.section||'').join(' ')).toLowerCase();
       const matchesQ = isDebug || !q || hay.includes(q);
       return matchesTag && matchesQ;
     });
@@ -1262,9 +1323,9 @@
         <div class="meta">
           ${(r.prepTime ?? r.time) ? `<span>⏱ Prep ${escapeHtml(String(r.prepTime ?? r.time))} min</span>` : ''}
           ${r.cookTime ? `<span>🍳 Cook ${escapeHtml(String(r.cookTime))} min</span>` : ''}
-          ${r.servings ? `<span>🍴 ${escapeHtml(String(r.servings))} servings</span>` : ''}
+          ${r.servings ? `<span>🍴 ${escapeHtml(String(r.servings))} ${escapeHtml(r.servingsUnit || 'servings')}</span>` : ''}
         </div>
-        ${r.tag ? `<span class="tag">${escapeHtml(r.tag)}</span>` : ''}
+        ${recipeTags(r).map(tag=>`<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}
       `;
       card.addEventListener('click', ()=>openDetail(r.id));
       grid.appendChild(card);
@@ -1278,6 +1339,11 @@
     d.textContent = str == null ? '' : String(str);
     return d.innerHTML;
   }
+  function recipeTags(recipe){
+    if(Array.isArray(recipe.tags)) return recipe.tags.filter(Boolean);
+    return recipe.tag ? String(recipe.tag).split(',').map(tag=>tag.trim()).filter(Boolean) : [];
+  }
+  function tagsText(recipe){ return recipeTags(recipe).join(', '); }
 
   // ---------- community (public library) ----------
   const communityGrid = document.getElementById('communityGrid');
@@ -1297,7 +1363,7 @@
     return publicRecipes.filter(r=>r.visibility !== 'unlisted');
   }
   function refreshCommunityTagFilter(){
-    const tags = [...new Set(listedPublicRecipes().map(r=>r.tag).filter(Boolean))];
+    const tags = [...new Set(listedPublicRecipes().flatMap(recipeTags))];
     const current = communityTagFilter.value;
     communityTagFilter.innerHTML = '<option value="">All tags</option>' +
       tags.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
@@ -1320,9 +1386,9 @@
     const tag = communityTagFilter.value;
     const lang = communityLangFilter.value;
     const filtered = listedPublicRecipes().filter(r=>{
-      const matchesTag = !tag || r.tag === tag;
+      const matchesTag = !tag || recipeTags(r).includes(tag);
       const matchesLang = !lang || r.language === lang;
-      const hay = (r.name + ' ' + (r.tag||'') + ' ' + r.ingredients.map(i=>ingredientDisplay(i)||i.section||'').join(' ')).toLowerCase();
+      const hay = (r.name + ' ' + tagsText(r) + ' ' + r.ingredients.map(i=>ingredientDisplay(i)||i.section||'').join(' ')).toLowerCase();
       const matchesQ = !q || hay.includes(q);
       return matchesTag && matchesLang && matchesQ;
     });
@@ -1341,11 +1407,11 @@
         <div class="meta">
           ${(r.prepTime ?? r.time) ? `<span>⏱ Prep ${escapeHtml(String(r.prepTime ?? r.time))} min</span>` : ''}
           ${r.cookTime ? `<span>🍳 Cook ${escapeHtml(String(r.cookTime))} min</span>` : ''}
-          ${r.servings ? `<span>🍴 ${escapeHtml(String(r.servings))} servings</span>` : ''}
+          ${r.servings ? `<span>🍴 ${escapeHtml(String(r.servings))} ${escapeHtml(r.servingsUnit || 'servings')}</span>` : ''}
               ${r.language ? `<span>🌐 ${escapeHtml(r.language)}</span>` : ''}
         </div>
         <div style="color:var(--muted);font-size:.8rem;margin-top:4px;">by ${escapeHtml(r.ownerLabel || 'Chef')}</div>
-        ${r.tag ? `<span class="tag">${escapeHtml(r.tag)}</span>` : ''}
+        ${recipeTags(r).map(tag=>`<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn small save-mine-btn" type="button">📥 Save</button>
           <button class="btn secondary small share-mine-btn" type="button">🔗 Share</button>
@@ -1381,8 +1447,9 @@
   function saveCopyToMine(r){
     window.ChefCloud.saveRecipe({
       id: uid(),
-      emoji: r.emoji, name: r.name, time: r.time, prepTime: r.prepTime, cookTime: r.cookTime, servings: r.servings,
-      tag: r.tag, notes: r.notes, ingredients: r.ingredients, steps: r.steps,
+      emoji: r.emoji, name: r.name, time: r.time, prepTime: r.prepTime, cookTime: r.cookTime,
+      servings: r.servings, servingsUnit: r.servingsUnit, tags: recipeTags(r), tag: r.tag,
+      difficulty: r.difficulty, notes: r.notes, ingredients: r.ingredients, steps: r.steps,
     });
   }
 
@@ -1435,7 +1502,9 @@
     document.getElementById('f-prep-time').value = '';
     document.getElementById('f-cook-time').value = '';
     document.getElementById('f-servings').value = '';
-    document.getElementById('f-tag').value = '';
+    document.getElementById('f-serving-unit').value = '';
+    document.getElementById('f-tags').value = '';
+    document.getElementById('f-difficulty').value = '';
     document.getElementById('f-notes').value = '';
     ingList.innerHTML = '';
     stepList.innerHTML = '';
@@ -1454,7 +1523,9 @@
       document.getElementById('f-prep-time').value = recipe.prepTime ?? recipe.time ?? '';
       document.getElementById('f-cook-time').value = recipe.cookTime || '';
       document.getElementById('f-servings').value = recipe.servings || '';
-      document.getElementById('f-tag').value = recipe.tag || '';
+      document.getElementById('f-serving-unit').value = recipe.servingsUnit || '';
+      document.getElementById('f-tags').value = tagsText(recipe);
+      document.getElementById('f-difficulty').value = recipe.difficulty || '';
       document.getElementById('f-notes').value = recipe.notes || '';
       ingList.innerHTML = '';
       stepList.innerHTML = '';
@@ -1507,7 +1578,10 @@
       prepTime: document.getElementById('f-prep-time').value.trim(),
       cookTime: document.getElementById('f-cook-time').value.trim(),
       servings: document.getElementById('f-servings').value.trim(),
-      tag: document.getElementById('f-tag').value.trim(),
+      servingsUnit: document.getElementById('f-serving-unit').value.trim() || 'servings',
+      tags: document.getElementById('f-tags').value.split(',').map(tag=>tag.trim()).filter(Boolean),
+      tag: document.getElementById('f-tags').value.trim(),
+      difficulty: document.getElementById('f-difficulty').value,
       notes: document.getElementById('f-notes').value.trim(),
       ingredients,
       steps,
@@ -1526,8 +1600,9 @@
     const prepTime = r.prepTime ?? r.time;
     if(prepTime) metaParts.push(`⏱ Prep ${prepTime} min`);
     if(r.cookTime) metaParts.push(`🍳 Cook ${r.cookTime} min`);
-    if(r.servings) metaParts.push(`🍴 ${r.servings} servings`);
-    if(r.tag) metaParts.push(`🏷 ${r.tag}`);
+    if(r.servings) metaParts.push(`🍴 ${r.servings} ${r.servingsUnit || 'servings'}`);
+    if(recipeTags(r).length) metaParts.push(`🏷 ${tagsText(r)}`);
+    if(r.difficulty) metaParts.push(`⭐ ${r.difficulty}`);
     if(extraMeta) metaParts.push(...extraMeta);
     document.getElementById('d-meta').textContent = metaParts.join('   •   ');
 
@@ -1595,42 +1670,79 @@
   function openSelectedLanguage(){
     const language = document.getElementById('viewLanguageSelect').value;
     const modal = document.getElementById('languageModal');
-    const status = document.getElementById('translationStatus');
     if(language === '__original'){
       modal.classList.remove('active');
       fillDetailView(pendingLanguageRecipe, pendingLanguageMeta);
       return;
     }
     modal.classList.remove('active');
-    status.textContent = '';
-    document.getElementById('translationName').value = pendingLanguageRecipe.name || '';
-    document.getElementById('translationIngredients').value = (pendingLanguageRecipe.ingredients || [])
-      .map(item=>item.section != null ? `[${item.section}]` : ingredientDisplay(item)).join('\n');
-    document.getElementById('translationSteps').value = (pendingLanguageRecipe.steps || []).map(step=>step.text).join('\n');
-    document.getElementById('translationNotes').value = pendingLanguageRecipe.notes || '';
-    document.getElementById('manualTranslationModal').dataset.language = language;
-    document.getElementById('manualTranslationModal').classList.add('active');
+    document.getElementById('translationLanguageLabel').textContent = `Translating to ${language}. The original recipe will not be changed.`;
+    document.getElementById('t-emoji').value = pendingLanguageRecipe.emoji || '';
+    document.getElementById('t-name').value = pendingLanguageRecipe.name || '';
+    document.getElementById('t-prep-time').value = pendingLanguageRecipe.prepTime ?? pendingLanguageRecipe.time ?? '';
+    document.getElementById('t-cook-time').value = pendingLanguageRecipe.cookTime || '';
+    document.getElementById('t-servings').value = pendingLanguageRecipe.servings || '';
+    document.getElementById('t-serving-unit').value = pendingLanguageRecipe.servingsUnit || 'servings';
+    document.getElementById('t-tags').value = tagsText(pendingLanguageRecipe);
+    document.getElementById('t-difficulty').value = pendingLanguageRecipe.difficulty || '';
+    document.getElementById('t-notes').value = pendingLanguageRecipe.notes || '';
+    const translationIngredients = document.getElementById('t-ingList');
+    const translationSteps = document.getElementById('t-stepList');
+    translationIngredients.innerHTML = '';
+    translationSteps.innerHTML = '';
+    (pendingLanguageRecipe.ingredients || []).forEach(item=>item.section != null
+      ? addSectionRow(translationIngredients, item.section)
+      : addDynRow(translationIngredients, 'Ingredient', item));
+    (pendingLanguageRecipe.steps || []).forEach(step=>addStepRow(translationSteps, step.text, step.seconds ? String(step.seconds / 60) : ''));
+    if(!translationIngredients.children.length) addDynRow(translationIngredients, 'Ingredient');
+    if(!translationSteps.children.length) addStepRow(translationSteps);
+    document.getElementById('view-translation').dataset.language = language;
+    showView('translation');
   }
   document.getElementById('openInLanguageBtn').addEventListener('click', openSelectedLanguage);
   document.getElementById('cancelLanguageBtn').addEventListener('click', ()=>document.getElementById('languageModal').classList.remove('active'));
-  document.getElementById('cancelManualTranslationBtn').addEventListener('click', ()=>document.getElementById('manualTranslationModal').classList.remove('active'));
-  document.getElementById('showManualTranslationBtn').addEventListener('click', ()=>{
+  document.getElementById('t-addIng').addEventListener('click', ()=>addDynRow(document.getElementById('t-ingList'), 'Ingredient'));
+  document.getElementById('t-addIngSection').addEventListener('click', ()=>addSectionRow(document.getElementById('t-ingList')));
+  document.getElementById('t-addStep').addEventListener('click', ()=>addStepRow(document.getElementById('t-stepList')));
+  document.getElementById('cancelTranslationBtn').addEventListener('click', ()=>showView('detail'));
+  document.getElementById('showTranslationBtn').addEventListener('click', ()=>{
     const source = pendingLanguageRecipe;
-    const ingredients = document.getElementById('translationIngredients').value.split('\n').map(text=>text.trim()).filter(Boolean)
-      .map(text=>/^\[.*\]$/.test(text) ? { section: text.slice(1,-1).trim() } : { text });
-    const steps = document.getElementById('translationSteps').value.split('\n').map(text=>text.trim()).filter(Boolean)
-      .map((text,index)=>({ text, seconds: source.steps?.[index]?.seconds || null }));
+    const ingredients = [...document.getElementById('t-ingList').querySelectorAll('.dyn-row')]
+      .map(row=>row.dataset.type === 'section'
+        ? { section: row.querySelector('input').value.trim() }
+        : {
+          quantity: row.querySelector('.ingredient-quantity').value.trim(),
+          unit: row.querySelector('.ingredient-unit').value.trim(),
+          name: row.querySelector('.ingredient-name').value.trim(),
+        })
+      .filter(item=>item.section || item.name || item.quantity)
+      .map(item=>item.section ? item : { ...item, text: ingredientDisplay(item) });
+    const steps = [...document.getElementById('t-stepList').querySelectorAll('.step-row')]
+      .map(row=>{
+        const text = row.querySelector('.step-text').value.trim();
+        const minutes = parseFloat(row.querySelector('.step-minutes').value);
+        return { text, seconds: Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes * 60) : null };
+      }).filter(step=>step.text);
     const translated = {
       ...source,
-      name: document.getElementById('translationName').value.trim() || source.name,
+      emoji: document.getElementById('t-emoji').value.trim() || source.emoji || '🍽️',
+      name: document.getElementById('t-name').value.trim() || source.name,
+      prepTime: document.getElementById('t-prep-time').value.trim(),
+      cookTime: document.getElementById('t-cook-time').value.trim(),
+      time: document.getElementById('t-prep-time').value.trim(),
+      servings: document.getElementById('t-servings').value.trim(),
+      servingsUnit: document.getElementById('t-serving-unit').value.trim() || 'servings',
       ingredients,
       steps,
-      notes: document.getElementById('translationNotes').value.trim(),
-      language: document.getElementById('manualTranslationModal').dataset.language,
+      tags: document.getElementById('t-tags').value.split(',').map(tag=>tag.trim()).filter(Boolean),
+      tag: document.getElementById('t-tags').value.trim(),
+      difficulty: document.getElementById('t-difficulty').value,
+      notes: document.getElementById('t-notes').value.trim(),
+      language: document.getElementById('view-translation').dataset.language,
     };
-    document.getElementById('manualTranslationModal').classList.remove('active');
     fillDetailView(translated, pendingLanguageMeta.concat([`🌐 ${translated.language}`]));
     updateDetailActionsVisibility();
+    showView('detail');
   });
   document.getElementById('translateRecipeBtn').addEventListener('click', ()=>{
     if(currentViewedRecipe) chooseRecipeLanguage(currentViewedRecipe, currentDetailSource === 'public'
@@ -1727,6 +1839,7 @@
     cookState.steps = r.steps; // [{text, seconds}]
     cookState.baseServings = parseFloat(r.servings) > 0 ? parseFloat(r.servings) : 1;
     cookState.servings = cookState.baseServings;
+    cookState.servingUnit = r.servingsUnit || 'servings';
     cookState.phase = cookState.ingredients.length ? 'ingredients' : 'steps';
     cookState.index = 0;
     cookOverlay.classList.add('active');
@@ -1753,7 +1866,7 @@
         <div class="cook-step-text">Everything you'll need</div>
         <div class="servings-control">
           <button type="button" class="serv-btn" id="servDown">−</button>
-          <span class="serv-count">Servings: <b id="servCount">${formatScaledNumber(cookState.servings)}</b></span>
+          <span class="serv-count">${escapeHtml(cookState.servingUnit)}: <b id="servCount">${formatScaledNumber(cookState.servings)}</b></span>
           <button type="button" class="serv-btn" id="servUp">+</button>
         </div>
         <ul class="cook-ing-list" id="cookIngList">
@@ -1974,13 +2087,15 @@
           'Respond ONLY with valid JSON, no markdown fences, no explanation.',
           '',
           'Schema (all fields required):',
-          '{"emoji":"🍽️","name":"...","prepTime":"15","cookTime":"30","servings":"4","tag":"...","notes":"...","ingredients":[{"quantity":"200","unit":"g","name":"flour"}],"steps":[{"text":"Mix well","minutes":null},{"text":"Bake","minutes":30}]}',
+          '{"emoji":"🍽️","name":"...","prepTime":"15","cookTime":"30","servings":"4","servingsUnit":"servings","tags":["Dinner"],"difficulty":"Easy","notes":"...","ingredients":[{"quantity":"200","unit":"g","name":"flour"}],"steps":[{"text":"Mix well","minutes":null},{"text":"Bake","minutes":30}]}',
           '',
           'Rules:',
           '- emoji: one relevant food emoji',
           '- prepTime and cookTime: minutes as strings',
           '- servings: number as string',
-          '- tag: one-word category (Dinner / Dessert / Italian / etc.)',
+          '- tags: array of categories (Vegetarian, Vegan, Dinner, Dessert, Italian, etc.)',
+          '- difficulty: Easy, Medium or Hard',
+          '- servingsUnit: servings, cookies, pieces, loaves, or another suitable unit',
           '- notes: tips or empty string',
           '- ingredients: flat string array with quantities',
           '- steps[].minutes: number when step has waiting time, null otherwise',
@@ -1996,7 +2111,9 @@
         document.getElementById('f-prep-time').value = recipe.prepTime || recipe.time || '';
         document.getElementById('f-cook-time').value = recipe.cookTime || '';
         document.getElementById('f-servings').value = recipe.servings || '';
-        document.getElementById('f-tag').value      = recipe.tag      || '';
+        document.getElementById('f-serving-unit').value = recipe.servingsUnit || 'servings';
+        document.getElementById('f-tags').value      = (recipe.tags || (recipe.tag ? [recipe.tag] : [])).join(', ');
+        document.getElementById('f-difficulty').value = recipe.difficulty || '';
         document.getElementById('f-notes').value    = recipe.notes    || '';
 
         ingList.innerHTML  = '';
