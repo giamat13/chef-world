@@ -577,6 +577,17 @@
   .trash-item .t-actions{display:flex;gap:6px;flex:none;flex-wrap:wrap;}
   .trash-empty{color:var(--muted);padding:12px 0;}
   .read-aloud-btn{margin-top:14px;}
+  .stars{color:var(--accent2);letter-spacing:1px;white-space:nowrap;}
+  .stars .off{color:var(--muted);opacity:.5;}
+  .card .rating-line{font-size:.85rem;color:var(--muted);margin-top:4px;}
+  .reviews-box{margin-top:16px;}
+  .review-item{border-top:1px solid var(--border,#3a2f26);padding:10px 0;}
+  .review-item .who{color:var(--muted);font-size:.85rem;}
+  .star-input button{background:none;border:none;font-size:1.6rem;color:var(--muted);cursor:pointer;padding:0 2px;}
+  .star-input button.on{color:var(--accent2);}
+  .chef-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;}
+  .voice-status{font-size:.85rem;color:var(--muted);margin-top:8px;min-height:1.2em;}
+  .voice-btn.listening{border-color:var(--accent);color:var(--accent2);}
   html.large-text{font-size:125%;}
   html.large-text input,html.large-text textarea,html.large-text select{font-size:1rem;padding:12px 14px;}
   html.large-text .btn{padding:14px 20px;font-size:1.05rem;}
@@ -610,6 +621,7 @@
   <button class="tab-btn active" data-view="library">📚 Library</button>
   <button class="tab-btn" data-view="form">➕ New Recipe</button>
   <button class="tab-btn" data-view="community">🌍 Community</button>
+  <button class="tab-btn" data-view="feed">👥 Following</button>
 </div>
 
 <div class="container">
@@ -625,6 +637,13 @@
         <option value="prep">Shortest prep</option>
         <option value="cooked">Recently cooked</option>
       </select>
+      <select id="maxPrepSelect" title="Maximum prep time">
+        <option value="">Any prep time</option>
+        <option value="15">Up to 15 min</option>
+        <option value="30">Up to 30 min</option>
+        <option value="60">Up to 60 min</option>
+      </select>
+      <input id="fridgeInput" placeholder="🧊 What's in my fridge? (eggs, milk, flour)" title="Comma-separated ingredients you have">
       <button class="btn secondary small" id="favFilterBtn" type="button" aria-pressed="false">★ Favorites</button>
       <button class="btn secondary small" id="exportBtn" type="button">⬇ Export</button>
       <button class="btn secondary small" id="importBtn" type="button">⬆ Import</button>
@@ -648,6 +667,13 @@
     <div class="empty" id="communityEmptyState" style="display:none;">
       No published recipes yet 🌍
     </div>
+  </div>
+
+  <!-- FOLLOWING FEED -->
+  <div class="view" id="view-feed">
+    <div class="toolbar"><span id="feedSummary" style="color:var(--muted);"></span></div>
+    <div class="grid" id="feedGrid"></div>
+    <div class="empty" id="feedEmptyState" style="display:none;"></div>
   </div>
 
   <!-- FORM -->
@@ -823,6 +849,7 @@
         <button class="btn secondary small" id="shareRecipeBtn" style="display:none;">🔗 Share</button>
         <button class="btn wa small" id="waShareRecipeBtn" style="display:none;">💬 WhatsApp</button>
         <button class="btn secondary small" id="favRecipeBtn" type="button" style="display:none;">☆ Favorite</button>
+        <button class="btn secondary small" id="followChefBtn" type="button" style="display:none;">➕ Follow chef</button>
         <button class="btn secondary small" id="unitToggleBtn" type="button">⚖ Units: Original</button>
       </div>
     </div>
@@ -840,6 +867,20 @@
         </div>
       </div>
     </div>
+    <div class="panel-box reviews-box" id="reviewsBox" style="display:none;">
+      <h4>Ratings &amp; reviews</h4>
+      <div id="reviewsSummary"></div>
+      <div id="reviewForm" style="margin:10px 0;">
+        <div class="star-input" id="starInput"></div>
+        <textarea id="reviewText" rows="2" maxlength="1000" placeholder="Share how it turned out (optional)" style="width:100%;margin-top:6px;"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+          <button class="btn small" id="saveReviewBtn" type="button">Post review</button>
+          <button class="btn secondary small" id="deleteReviewBtn" type="button" style="display:none;">Delete my review</button>
+        </div>
+        <div class="auth-error" id="reviewStatus"></div>
+      </div>
+      <div id="reviewsList"></div>
+    </div>
     <div style="margin-top:16px;">
       <button class="btn secondary" id="backToLibrary">← Back to Library</button>
     </div>
@@ -850,6 +891,10 @@
 <!-- COOK MODE OVERLAY -->
 <div class="cook-overlay" id="cookOverlay">
   <button class="cook-close" id="cookCloseBtn">✕</button>
+  <div style="text-align:center;margin-top:10px;" id="voiceBar" hidden>
+    <button class="btn secondary small voice-btn" id="voiceBtn" type="button" aria-pressed="false">🎤 Hands-free: Off</button>
+    <div class="voice-status" id="voiceStatus"></div>
+  </div>
   <div class="cook-progress-wrap">
     <div class="cook-progress-bar"><div class="cook-progress-fill" id="cookProgressFill"></div></div>
     <div class="cook-progress-label" id="cookProgressLabel"></div>
@@ -960,7 +1005,7 @@
     signInAnonymously
   } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
   import {
-    getFirestore, collection, doc, setDoc, deleteDoc, getDoc, onSnapshot
+    getFirestore, collection, collectionGroup, doc, setDoc, deleteDoc, getDoc, onSnapshot
   } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
   import {
     getAnalytics, logEvent, isSupported as analyticsIsSupported
@@ -1007,6 +1052,8 @@
     _readyCbs: [],
     _recipeCbs: [],
     _publicCbs: [],
+    _reviewCbs: [],
+    _followCbs: [],
     onReady(cb){ this.ready ? cb() : this._readyCbs.push(cb); },
     onRecipesChange(cb){ this._recipeCbs.push(cb); },
     onPublicRecipesChange(cb){ this._publicCbs.push(cb); },
@@ -1093,6 +1140,38 @@
       await deleteDoc(doc(collection(db, 'publicRecipes'), pubId));
       this.logEvent('recipe_unpublished');
     },
+    onReviewsChange(cb){ this._reviewCbs.push(cb); },
+    onFollowingChange(cb){ this._followCbs.push(cb); },
+    // One review per user per recipe: the document id is the reviewer's uid.
+    async saveReview(pubId, rating, text){
+      if(!this.user) return;
+      const ref = doc(collection(db, 'publicRecipes', pubId, 'reviews'), this.user.uid);
+      const existing = await getDoc(ref);
+      const now = Date.now();
+      await setDoc(ref, {
+        uid: this.user.uid,
+        rating: Math.round(rating),
+        text: String(text || '').slice(0, 1000),
+        authorLabel: this.user.isAnonymous ? 'Guest' : maskEmail(this.user.email),
+        createdAt: existing.exists() ? (existing.data().createdAt || now) : now,
+        updatedAt: now,
+      });
+      this.logEvent('review_saved', { rating });
+    },
+    async deleteReview(pubId){
+      if(!this.user) return;
+      await deleteDoc(doc(collection(db, 'publicRecipes', pubId, 'reviews'), this.user.uid));
+    },
+    async followChef(chefUid, label){
+      if(!this.user || chefUid === this.user.uid) return;
+      await setDoc(doc(collection(db, 'users', this.user.uid, 'following'), chefUid),
+        { chefUid, chefLabel: label || 'Chef', followedAt: Date.now() });
+      this.logEvent('chef_followed');
+    },
+    async unfollowChef(chefUid){
+      if(!this.user) return;
+      await deleteDoc(doc(collection(db, 'users', this.user.uid, 'following'), chefUid));
+    },
     async getPublicRecipeById(pubId){
       const snap = await getDoc(doc(collection(db, 'publicRecipes'), pubId));
       return snap.exists() ? snap.data() : null;
@@ -1105,6 +1184,8 @@
 
   let unsubscribeRecipes = null;
   let unsubscribePublicRecipes = null;
+  let unsubscribeReviews = null;
+  let unsubscribeFollowing = null;
 
   function friendlyAuthError(err){
     const code = err && err.code || '';
@@ -1183,11 +1264,15 @@
     window.ChefCloud.user = user;
     if(unsubscribeRecipes){ unsubscribeRecipes(); unsubscribeRecipes = null; }
     if(unsubscribePublicRecipes){ unsubscribePublicRecipes(); unsubscribePublicRecipes = null; }
+    if(unsubscribeReviews){ unsubscribeReviews(); unsubscribeReviews = null; }
+    if(unsubscribeFollowing){ unsubscribeFollowing(); unsubscribeFollowing = null; }
 
     if(!user){
       showAuthOverlay();
       window.ChefCloud._recipeCbs.forEach(cb=>cb([], []));
       window.ChefCloud._publicCbs.forEach(cb=>cb([]));
+      window.ChefCloud._reviewCbs.forEach(cb=>cb([]));
+      window.ChefCloud._followCbs.forEach(cb=>cb([]));
       window.ChefCloud.ready = true;
       window.ChefCloud._readyCbs.forEach(cb=>cb());
       window.ChefCloud._readyCbs = [];
@@ -1214,6 +1299,13 @@
       const publicRecipes = snap.docs.map(d=>d.data());
       window.ChefCloud._publicCbs.forEach(cb=>cb(publicRecipes));
     });
+    unsubscribeReviews = onSnapshot(collectionGroup(db, 'reviews'), (snap)=>{
+      const reviews = snap.docs.map(d=>({ ...d.data(), pubId: d.ref.parent.parent.id }));
+      window.ChefCloud._reviewCbs.forEach(cb=>cb(reviews));
+    }, (err)=>console.error('reviews listener failed', err));
+    unsubscribeFollowing = onSnapshot(collection(db, 'users', user.uid, 'following'), (snap)=>{
+      window.ChefCloud._followCbs.forEach(cb=>cb(snap.docs.map(d=>d.data())));
+    }, (err)=>console.error('following listener failed', err));
   });
 </script>
 
@@ -1224,6 +1316,8 @@
   let recipes = [];
   let trashedRecipes = [];
   let publicRecipes = [];
+  let allReviews = [];   // every review, from a collection-group listener
+  let following = [];    // [{chefUid, chefLabel}]
   let currentRecipeId = null;
   let currentDetailSource = 'mine'; // 'mine' | 'public'
   let currentPublicRecipe = null;
@@ -1382,6 +1476,7 @@
     translation: document.getElementById('view-translation'),
     detail: document.getElementById('view-detail'),
     community: document.getElementById('view-community'),
+    feed: document.getElementById('view-feed'),
   };
   const tabBtns = document.querySelectorAll('.tab-btn');
   function showView(name){
@@ -1393,6 +1488,7 @@
     btn.addEventListener('click', ()=>{
       if(btn.dataset.view === 'form'){ openForm(null); }
       else if(btn.dataset.view === 'community'){ showView('community'); renderCommunityGrid(); }
+      else if(btn.dataset.view === 'feed'){ showView('feed'); renderFeed(); }
       else { showView(btn.dataset.view); renderGrid(); }
     });
   });
@@ -1601,9 +1697,10 @@
   function stopSpeaking(){
     if(speechOK) window.speechSynthesis.cancel();
   }
-  function speakText(text, btn){
+  function speakText(text, btn, force){
     if(!speechOK) return;
-    if(window.speechSynthesis.speaking){
+    if(force) stopSpeaking();
+    else if(window.speechSynthesis.speaking){
       stopSpeaking();
       if(btn) btn.textContent = '🔊 Read aloud';
       return;
@@ -1629,13 +1726,31 @@
     const q = qRaw.toLowerCase();
     const tag = filterTag.value;
     const source = isDebug ? DEBUG_RECIPES : recipes;
-    const filtered = sortRecipes(source.filter(r=>{
+    const maxPrep = parseFloat(maxPrepSelect.value);
+    const fridge = fridgeTerms();
+    const coverage = new Map(); // recipe id -> {have, total}
+    let filtered = source.filter(r=>{
       const matchesTag = !tag || recipeTags(r).includes(tag);
       const hay = (r.name + ' ' + tagsText(r) + ' ' + r.ingredients.map(i=>ingredientDisplay(i)||i.section||'').join(' ')).toLowerCase();
       const matchesQ = isDebug || !q || hay.includes(q);
       const matchesFav = !favOnly || r.favorite === true;
-      return matchesTag && matchesQ && matchesFav;
-    }));
+      const matchesPrep = !Number.isFinite(maxPrep) || prepMinutes(r) <= maxPrep;
+      let matchesFridge = true;
+      if(fridge.length){
+        const c = fridgeCoverage(r, fridge);
+        coverage.set(r.id, c);
+        matchesFridge = c.have > 0;
+      }
+      return matchesTag && matchesQ && matchesFav && matchesPrep && matchesFridge;
+    });
+    filtered = sortRecipes(filtered);
+    // With a fridge list, the recipes you can make with the most of it come first.
+    if(fridge.length){
+      filtered.sort((a,b)=>{
+        const ca = coverage.get(a.id), cb = coverage.get(b.id);
+        return (cb.have / cb.total) - (ca.have / ca.total) || cb.have - ca.have;
+      });
+    }
     grid.innerHTML = '';
     if(filtered.length === 0){
       emptyState.style.display = 'block';
@@ -1656,6 +1771,7 @@
           ${r.cookTime ? `<span>🍳 Cook ${escapeHtml(String(r.cookTime))} min</span>` : ''}
           ${r.servings ? `<span>🍴 ${escapeHtml(String(r.servings))} ${escapeHtml(r.servingsUnit || 'servings')}</span>` : ''}
         </div>
+        ${coverage.has(r.id) ? `<div class="rating-line">🧊 You have ${coverage.get(r.id).have} of ${coverage.get(r.id).total} ingredients</div>` : ''}
         ${recipeTags(r).map(tag=>`<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}
       `;
       card.addEventListener('click', ()=>openDetail(r.id));
@@ -1673,6 +1789,22 @@
   }
   searchInput.addEventListener('input', renderGrid);
   filterTag.addEventListener('change', renderGrid);
+
+  // ---------- "what's in my fridge" and prep-time filters ----------
+  const maxPrepSelect = document.getElementById('maxPrepSelect');
+  const fridgeInput = document.getElementById('fridgeInput');
+  maxPrepSelect.addEventListener('change', renderGrid);
+  fridgeInput.addEventListener('input', renderGrid);
+  function fridgeTerms(){
+    return fridgeInput.value.split(/[,،\n]/).map(t=>t.trim().toLowerCase()).filter(Boolean);
+  }
+  // Counts the recipe's real ingredients (section headers excluded) that match something in the fridge.
+  function fridgeCoverage(r, terms){
+    const items = (r.ingredients || []).filter(i=>i.section == null);
+    const names = items.map(i=>String(i.name != null ? i.name : (i.text || '')).toLowerCase());
+    const have = names.filter(n=>terms.some(t=>n.includes(t))).length;
+    return { have, total: Math.max(items.length, 1) };
+  }
 
   function escapeHtml(str){
     const d = document.createElement('div');
@@ -1751,13 +1883,17 @@
               ${r.language ? `<span>🌐 ${escapeHtml(r.language)}</span>` : ''}
         </div>
         <div style="color:var(--muted);font-size:.8rem;margin-top:4px;">by ${escapeHtml(r.ownerLabel || 'Chef')}</div>
+        ${ratingLineHtml(r.pubId)}
         ${recipeTags(r).map(tag=>`<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn small save-mine-btn" type="button">📥 Save</button>
           <button class="btn secondary small share-mine-btn" type="button">🔗 Share</button>
           <button class="btn small wa wa-share-btn" type="button">💬 WhatsApp</button>
+          ${canFollow(r) ? `<button class="btn secondary small follow-btn" type="button">${isFollowing(r.ownerId) ? '✓ Following' : '➕ Follow chef'}</button>` : ''}
         </div>
       `;
+      const followBtn = card.querySelector('.follow-btn');
+      if(followBtn) followBtn.addEventListener('click', (e)=>{ e.stopPropagation(); toggleFollow(r); });
       card.addEventListener('click', ()=>openCommunityDetail(r));
       card.querySelector('.save-mine-btn').addEventListener('click', (e)=>{
         e.stopPropagation();
@@ -1795,6 +1931,140 @@
       emoji: r.emoji, name: r.name, time: r.time, prepTime: r.prepTime, cookTime: r.cookTime,
       servings: r.servings, servingsUnit: r.servingsUnit, tags: recipeTags(r), tag: r.tag,
       difficulty: r.difficulty, notes: r.notes, ingredients: r.ingredients, steps: r.steps,
+    });
+  }
+
+  // ---------- ratings & reviews ----------
+  function reviewsFor(pubId){ return allReviews.filter(x=>x.pubId === pubId); }
+  function ratingStats(pubId){
+    const list = reviewsFor(pubId);
+    if(!list.length) return null;
+    const avg = list.reduce((s,x)=>s + (Number(x.rating) || 0), 0) / list.length;
+    return { avg, count: list.length };
+  }
+  function starsHtml(value){
+    const full = Math.round(value);
+    return `<span class="stars">${'★'.repeat(full)}<span class="off">${'★'.repeat(5 - full)}</span></span>`;
+  }
+  function ratingLineHtml(pubId){
+    const s = ratingStats(pubId);
+    return s
+      ? `<div class="rating-line">${starsHtml(s.avg)} ${s.avg.toFixed(1)} (${s.count})</div>`
+      : `<div class="rating-line">No ratings yet</div>`;
+  }
+  function myUid(){ return window.ChefCloud.user ? window.ChefCloud.user.uid : null; }
+
+  let draftRating = 0;
+  const starInput = document.getElementById('starInput');
+  const reviewText = document.getElementById('reviewText');
+  const reviewStatus = document.getElementById('reviewStatus');
+  function paintStarInput(){
+    starInput.innerHTML = [1,2,3,4,5].map(n=>
+      `<button type="button" data-n="${n}" class="${n <= draftRating ? 'on' : ''}" aria-label="${n} stars">★</button>`).join('');
+    starInput.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{
+      draftRating = Number(b.dataset.n);
+      paintStarInput();
+    }));
+  }
+  function renderReviews(){
+    const box = document.getElementById('reviewsBox');
+    const pub = currentDetailSource === 'public' ? currentPublicRecipe : null;
+    box.style.display = pub ? '' : 'none';
+    if(!pub) return;
+    const me = myUid();
+    const list = reviewsFor(pub.pubId).sort((a,b)=>(b.updatedAt || 0) - (a.updatedAt || 0));
+    const s = ratingStats(pub.pubId);
+    document.getElementById('reviewsSummary').innerHTML = s
+      ? `${starsHtml(s.avg)} <b>${s.avg.toFixed(1)}</b> from ${s.count} ${s.count === 1 ? 'review' : 'reviews'}`
+      : '<span style="color:var(--muted);">No reviews yet. Be the first!</span>';
+    const isOwn = pub.ownerId === me;
+    const mine = list.find(x=>x.uid === me);
+    document.getElementById('reviewForm').style.display = isOwn ? 'none' : '';
+    // Fill the form from the user's existing review, but never overwrite what they are typing.
+    if(!reviewText.dataset.pubId || reviewText.dataset.pubId !== pub.pubId){
+      reviewText.dataset.pubId = pub.pubId;
+      draftRating = mine ? Number(mine.rating) : 0;
+      reviewText.value = mine ? (mine.text || '') : '';
+      reviewStatus.textContent = '';
+      paintStarInput();
+    }
+    document.getElementById('saveReviewBtn').textContent = mine ? 'Update review' : 'Post review';
+    document.getElementById('deleteReviewBtn').style.display = mine ? '' : 'none';
+    document.getElementById('reviewsList').innerHTML = list.map(x=>`
+      <div class="review-item">
+        <div>${starsHtml(x.rating)} <span class="who">${escapeHtml(x.authorLabel || 'Chef')}${x.uid === me ? ' (you)' : ''}</span></div>
+        ${x.text ? `<div dir="auto" style="margin-top:4px;">${escapeHtml(x.text)}</div>` : ''}
+      </div>`).join('');
+  }
+  document.getElementById('saveReviewBtn').addEventListener('click', async ()=>{
+    const pub = currentPublicRecipe;
+    if(!pub) return;
+    if(!draftRating){ reviewStatus.style.color = ''; reviewStatus.textContent = 'Pick a star rating first.'; return; }
+    try{
+      await window.ChefCloud.saveReview(pub.pubId, draftRating, reviewText.value.trim());
+      reviewStatus.style.color = 'var(--good)';
+      reviewStatus.textContent = 'Thanks! Your review is saved.';
+    }catch(e){
+      console.error(e);
+      reviewStatus.style.color = '';
+      reviewStatus.textContent = 'Could not save your review. Please try again.';
+    }
+  });
+  document.getElementById('deleteReviewBtn').addEventListener('click', async ()=>{
+    const pub = currentPublicRecipe;
+    if(!pub) return;
+    try{
+      await window.ChefCloud.deleteReview(pub.pubId);
+      reviewText.dataset.pubId = '';
+      renderReviews();
+    }catch(e){ console.error(e); reviewStatus.textContent = 'Could not delete your review.'; }
+  });
+
+  // ---------- following chefs & feed ----------
+  function isFollowing(chefUid){ return following.some(f=>f.chefUid === chefUid); }
+  function canFollow(r){ return !!r.ownerId && r.ownerId !== myUid(); }
+  async function toggleFollow(r){
+    try{
+      if(isFollowing(r.ownerId)) await window.ChefCloud.unfollowChef(r.ownerId);
+      else await window.ChefCloud.followChef(r.ownerId, r.ownerLabel);
+    }catch(e){ console.error(e); alert('Could not update follow. Please try again.'); }
+  }
+  function renderFeed(){
+    const feedGrid = document.getElementById('feedGrid');
+    const empty = document.getElementById('feedEmptyState');
+    const ids = new Set(following.map(f=>f.chefUid));
+    document.getElementById('feedSummary').textContent = following.length
+      ? `Following ${following.length} ${following.length === 1 ? 'chef' : 'chefs'}: ${following.map(f=>f.chefLabel || 'Chef').join(', ')}`
+      : '';
+    const feed = listedPublicRecipes()
+      .filter(r=>ids.has(r.ownerId))
+      .sort((a,b)=>(b.publishedAt || 0) - (a.publishedAt || 0));
+    feedGrid.innerHTML = '';
+    if(!feed.length){
+      empty.style.display = 'block';
+      empty.innerHTML = following.length
+        ? 'The chefs you follow have not published anything yet 🍳'
+        : 'You are not following anyone yet.<br>Open Community and tap “Follow chef” on a recipe 🌍';
+      return;
+    }
+    empty.style.display = 'none';
+    feed.forEach(r=>{
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="emoji">${escapeHtml(r.emoji || '🍽️')}</div>
+        <h3 dir="auto">${escapeHtml(r.name)}</h3>
+        <div style="color:var(--muted);font-size:.8rem;margin-top:4px;">by ${escapeHtml(r.ownerLabel || 'Chef')}${r.publishedAt ? ' · ' + escapeHtml(new Date(r.publishedAt).toLocaleDateString()) : ''}</div>
+        ${ratingLineHtml(r.pubId)}
+        ${recipeTags(r).map(tag=>`<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn small save-mine-btn" type="button">📥 Save</button>
+          <button class="btn secondary small unfollow-btn" type="button">✓ Following</button>
+        </div>`;
+      card.addEventListener('click', ()=>openCommunityDetail(r));
+      card.querySelector('.save-mine-btn').addEventListener('click', (e)=>{ e.stopPropagation(); saveCopyToMine(r); });
+      card.querySelector('.unfollow-btn').addEventListener('click', (e)=>{ e.stopPropagation(); toggleFollow(r); });
+      feedGrid.appendChild(card);
     });
   }
 
@@ -2059,8 +2329,15 @@
     favBtn.style.display = isPublic || isDebug ? 'none' : '';
     const mine = recipes.find(x=>x.id === currentRecipeId);
     favBtn.textContent = mine && mine.favorite ? '★ Favorited' : '☆ Favorite';
+    const followBtn = document.getElementById('followChefBtn');
+    const showFollow = isPublic && currentPublicRecipe && canFollow(currentPublicRecipe);
+    followBtn.style.display = showFollow ? '' : 'none';
+    if(showFollow) followBtn.textContent = isFollowing(currentPublicRecipe.ownerId) ? '✓ Following' : '➕ Follow chef';
     updateUnitLabels();
   }
+  document.getElementById('followChefBtn').addEventListener('click', ()=>{
+    if(currentPublicRecipe) toggleFollow(currentPublicRecipe);
+  });
 
   function openDetail(id){
     const r = findRecipeById(id);
@@ -2072,6 +2349,7 @@
     fillDetailView(r);
     updateDetailActionsVisibility();
     showView('detail');
+    renderReviews();
   }
 
   function openCommunityDetail(pub){
@@ -2082,6 +2360,7 @@
     fillDetailView(pub, [`🌐 ${pub.language}`, `by ${pub.ownerLabel || 'Chef'}`]);
     updateDetailActionsVisibility();
     showView('detail');
+    renderReviews();
   }
 
   function chooseRecipeLanguage(recipe, extraMeta){
@@ -2342,7 +2621,86 @@
   });
 
   document.getElementById('cookCloseBtn').addEventListener('click', closeCook);
+  // ---------- hands-free voice control (Hebrew and English commands) ----------
+  // Say: next / הבא, back / חזור, repeat / שוב, start timer / טיימר, stop / עצור.
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const voiceBar = document.getElementById('voiceBar');
+  const voiceBtn = document.getElementById('voiceBtn');
+  const voiceStatus = document.getElementById('voiceStatus');
+  let recog = null;
+  let voiceOn = false;
+  if(SpeechRec) voiceBar.hidden = false;
+
+  function voiceLang(){
+    const sample = (cookState.steps[0] && cookState.steps[0].text) || '';
+    return /[֐-׿]/.test(sample) ? 'he-IL' : 'en-US';
+  }
+  function clickCook(id){
+    const el = document.getElementById(id);
+    if(el) el.click();
+    return !!el;
+  }
+  function handleVoiceCommand(raw){
+    const t = raw.toLowerCase().trim();
+    voiceStatus.textContent = `Heard: “${t}”`;
+    // "repeat" must be checked before "back": the Hebrew words for both start with חזור.
+    if(/חזור על|שוב|תקרא|הקרא|קרא|repeat|again|read/.test(t)){
+      const text = cookState.steps[cookState.index] && cookState.steps[cookState.index].text;
+      if(cookState.phase === 'steps' && text) speakText(text, null, true);
+    } else if(/הבא|הלאה|קדימה|next|forward|continue/.test(t)){
+      clickCook('nextStepBtn') || clickCook('startStepsBtn');
+    } else if(/חזור|אחורה|קודם|back|previous/.test(t)){
+      clickCook('prevStepBtn');
+    } else if(/טיימר|התחל|start|timer/.test(t)){
+      const tg = document.getElementById('timerToggle');
+      if(tg && !cookState.timerInterval) tg.click();
+    } else if(/עצור|תפסיק|stop|pause/.test(t)){
+      stopSpeaking();
+      const tg = document.getElementById('timerToggle');
+      if(tg && cookState.timerInterval) tg.click();
+    }
+  }
+  function startVoice(){
+    if(!SpeechRec || voiceOn) return;
+    recog = new SpeechRec();
+    recog.continuous = true;
+    recog.interimResults = false;
+    recog.lang = voiceLang();
+    recog.onresult = (ev)=>{
+      // Ignore audio picked up while the app itself is reading a step aloud.
+      if(speechOK && window.speechSynthesis.speaking) return;
+      for(let i = ev.resultIndex; i < ev.results.length; i++){
+        if(ev.results[i].isFinal) handleVoiceCommand(ev.results[i][0].transcript);
+      }
+    };
+    recog.onerror = (ev)=>{
+      if(ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){
+        voiceStatus.textContent = 'Microphone access was blocked.';
+        stopVoice();
+      }
+    };
+    // The browser ends recognition after silence, so restart while hands-free is on.
+    recog.onend = ()=>{ if(voiceOn){ try{ recog.start(); }catch(e){} } };
+    voiceOn = true;
+    try{ recog.start(); }catch(e){ voiceOn = false; return; }
+    voiceBtn.textContent = '🎤 Hands-free: On';
+    voiceBtn.setAttribute('aria-pressed', 'true');
+    voiceBtn.classList.add('listening');
+    voiceStatus.textContent = 'Listening… say “next”, “back”, “repeat”, “timer” (הבא, חזור, שוב, טיימר)';
+    if(cookState.phase === 'steps' && cookState.steps[cookState.index]) speakText(cookState.steps[cookState.index].text, null, true);
+  }
+  function stopVoice(){
+    voiceOn = false;
+    if(recog){ try{ recog.stop(); }catch(e){} recog = null; }
+    voiceBtn.textContent = '🎤 Hands-free: Off';
+    voiceBtn.setAttribute('aria-pressed', 'false');
+    voiceBtn.classList.remove('listening');
+    if(!voiceStatus.textContent.startsWith('Microphone')) voiceStatus.textContent = '';
+  }
+  voiceBtn.addEventListener('click', ()=>{ voiceStatus.textContent = ''; voiceOn ? stopVoice() : startVoice(); });
+
   function closeCook(){
+    stopVoice();
     stopTimer();
     stopSpeaking();
     releaseWakeLock();
@@ -2475,6 +2833,8 @@
       const toggle = document.getElementById('timerToggle');
       toggle.addEventListener('click', ()=>toggleTimer(secs, toggle));
     }
+    // In hands-free mode each new step is read aloud automatically.
+    if(voiceOn) speakText(text, null, true);
   }
 
   function formatTime(s){
@@ -2676,6 +3036,19 @@
     window.ChefCloud.onPublicRecipesChange((newPublicRecipes)=>{
       publicRecipes = newPublicRecipes;
       if(views.community.classList.contains('active')) renderCommunityGrid();
+      if(views.feed.classList.contains('active')) renderFeed();
+    });
+    window.ChefCloud.onReviewsChange((newReviews)=>{
+      allReviews = newReviews;
+      if(views.community.classList.contains('active')) renderCommunityGrid();
+      if(views.feed.classList.contains('active')) renderFeed();
+      if(views.detail.classList.contains('active')) renderReviews();
+    });
+    window.ChefCloud.onFollowingChange((list)=>{
+      following = list;
+      if(views.community.classList.contains('active')) renderCommunityGrid();
+      if(views.feed.classList.contains('active')) renderFeed();
+      if(views.detail.classList.contains('active')) updateDetailActionsVisibility();
     });
   }
   if(window.ChefCloud) registerRecipeListener();

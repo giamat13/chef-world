@@ -10,6 +10,10 @@ It is a single static page (`index.html`) that talks to Firebase directly from t
 - **Import with AI**: paste recipe text or a link, and Gemini turns it into a structured recipe.
 - **Cook mode**: a step-by-step view with an ingredient checklist and a timer.
 - **Community**: publish a recipe as public or unlisted, tagged with its language. You can unpublish at any time.
+- **Ratings and reviews**: rate public recipes from 1 to 5 stars and write a short review. Average ratings show on every card. You cannot review your own recipe.
+- **Follow chefs**: follow the authors of public recipes. The Following tab is a feed of their newest recipes.
+- **Smarter search**: filter by tag, maximum prep time and favorites, or list what is in your fridge to see the recipes you can make with it.
+- **Hands-free cooking**: the screen stays on, steps can be read aloud, and voice commands work in Hebrew and English ("next" / הבא, "back" / חזור, "repeat" / שוב, "timer" / טיימר).
 - **Manual translation**: write a translation of a recipe into another language.
 - **Sign-in**: email and password, Google, or an anonymous guest account.
 
@@ -38,7 +42,7 @@ The Firebase web config is not a secret, but it should point at a project you co
 ## Files
 
 - `index.html`: the whole app, with markup, styles and script.
-- `firestore.rules`: Firestore security rules. Users can read and write only their own recipes. Any signed-in user can read published recipes, and only the owner can publish, update or remove them.
+- `firestore.rules`: Firestore security rules. Users can read and write only their own recipes. Any signed-in user can read published recipes, and only the owner can publish, update or remove them. Reviews are one per user per recipe, and followed chefs are private to each user. **Republish the rules** after updating, or ratings and follows will be denied.
 
 ## License
 
