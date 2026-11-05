@@ -567,6 +567,21 @@
   @media(max-width:600px){
     .account-bar{position:static;margin:0 auto 10px;width:fit-content;}
   }
+  /* ==== trash, WhatsApp, read aloud, large text ==== */
+  .btn.wa{background:#25d366;color:#0b1f12;}
+  .btn.wa:hover{box-shadow:0 6px 16px rgba(37,211,102,.35);}
+  .trash-list{text-align:start;max-height:50vh;overflow-y:auto;margin:12px 0;}
+  .trash-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);}
+  .trash-item .t-name{font-weight:700;overflow-wrap:anywhere;}
+  .trash-item .t-days{color:var(--muted);font-size:.8rem;}
+  .trash-item .t-actions{display:flex;gap:6px;flex:none;flex-wrap:wrap;}
+  .trash-empty{color:var(--muted);padding:12px 0;}
+  .read-aloud-btn{margin-top:14px;}
+  html.large-text{font-size:125%;}
+  html.large-text input,html.large-text textarea,html.large-text select{font-size:1rem;padding:12px 14px;}
+  html.large-text .btn{padding:14px 20px;font-size:1.05rem;}
+  html.large-text .btn.small{padding:10px 14px;font-size:.95rem;}
+  html.large-text .tab-btn{padding:12px 22px;}
 </style>
 </head>
 <body>
@@ -588,6 +603,7 @@
 <header>
   <h1>👨‍🍳 Chef World</h1>
   <p>Collect, organize, and cook — with a step-by-step guide</p>
+  <button class="btn secondary small" id="largeTextBtn" type="button" aria-pressed="false" style="margin-top:10px;">🔍 Large text</button>
 </header>
 
 <div class="tabs">
@@ -612,6 +628,7 @@
       <button class="btn secondary small" id="favFilterBtn" type="button" aria-pressed="false">★ Favorites</button>
       <button class="btn secondary small" id="exportBtn" type="button">⬇ Export</button>
       <button class="btn secondary small" id="importBtn" type="button">⬆ Import</button>
+      <button class="btn secondary small" id="trashBtn" type="button">🗑 Trash</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div>
     <div class="grid" id="recipeGrid"></div>
@@ -804,6 +821,7 @@
         <button class="btn secondary small" id="translateRecipeBtn">🌐 Translate</button>
         <button class="btn small" id="saveToMineBtn" style="display:none;">📥 Save to My Recipes</button>
         <button class="btn secondary small" id="shareRecipeBtn" style="display:none;">🔗 Share</button>
+        <button class="btn wa small" id="waShareRecipeBtn" style="display:none;">💬 WhatsApp</button>
         <button class="btn secondary small" id="favRecipeBtn" type="button" style="display:none;">☆ Favorite</button>
         <button class="btn secondary small" id="unitToggleBtn" type="button">⚖ Units: Original</button>
       </div>
@@ -840,6 +858,16 @@
   <div id="cookBody"></div>
 </div>
 
+<!-- TRASH MODAL -->
+<div class="modal-bg" id="trashModal">
+  <div class="modal-box" style="max-width:520px;width:100%;">
+    <h3>🗑 Trash</h3>
+    <p style="color:var(--muted);font-size:.9rem;">Deleted recipes stay here for 30 days.</p>
+    <div class="trash-list" id="trashList"></div>
+    <button class="btn secondary" id="closeTrashBtn" type="button">Close</button>
+  </div>
+</div>
+
 <!-- PUBLISH MODAL -->
 <div class="modal-bg" id="publishModal">
   <div class="modal-box">
@@ -856,6 +884,7 @@
     <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
       <button class="btn" id="confirmPublishBtn">Publish</button>
       <button class="btn secondary small" id="copyLinkBtn" style="display:none;">🔗 Copy link</button>
+      <button class="btn wa small" id="whatsappLinkBtn" style="display:none;">💬 WhatsApp</button>
       <button class="btn secondary" id="cancelPublishBtn">Cancel</button>
       <button class="btn danger small" id="unpublishBtn" style="display:none;">Unpublish</button>
     </div>
@@ -881,9 +910,9 @@
 <!-- CONFIRM DELETE MODAL -->
 <div class="modal-bg" id="deleteModal">
   <div class="modal-box">
-    <p>Delete this recipe? This can't be undone 🗑️</p>
+    <p>Move this recipe to the trash? You can restore it within 30 days. 🗑️</p>
     <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;">
-      <button class="btn danger" id="confirmDeleteBtn">Yes, delete</button>
+      <button class="btn danger" id="confirmDeleteBtn">Yes, move to trash</button>
       <button class="btn secondary" id="cancelDeleteBtn">Cancel</button>
     </div>
   </div>
@@ -961,6 +990,9 @@
   let analytics = null;
   analyticsIsSupported().then(ok=>{ if(ok) analytics = getAnalytics(app); }).catch(()=>{});
 
+  // Trashed recipes are kept this long, then removed for good on the next snapshot.
+  const TRASH_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
+
   function maskEmail(email){
     if(!email) return 'Chef';
     const [local] = email.split('@');
@@ -982,18 +1014,30 @@
     async saveRecipe(recipe){
       if(!this.user) return;
       const ref = doc(collection(db, 'users', this.user.uid, 'recipes'), recipe.id);
-      // merge keeps personal fields (favorite, lastCookedAt) when a recipe is edited
-      await setDoc(ref, recipe, { merge: true });
+      // merge keeps personal fields (favorite, lastCookedAt) when a recipe is edited.
+      // deletedAt: null makes the recipe live again if an import reuses a trashed id.
+      await setDoc(ref, { ...recipe, deletedAt: null }, { merge: true });
       this.logEvent('recipe_saved', { recipe_name: recipe.name });
     },
     async updateRecipeFields(id, fields){
       if(!this.user) return;
       await setDoc(doc(collection(db, 'users', this.user.uid, 'recipes'), id), fields, { merge: true });
     },
+    // Soft delete: the recipe goes to the trash and stays there for 30 days.
     async deleteRecipe(id){
       if(!this.user) return;
-      await deleteDoc(doc(collection(db, 'users', this.user.uid, 'recipes'), id));
+      await setDoc(doc(collection(db, 'users', this.user.uid, 'recipes'), id), { deletedAt: Date.now() }, { merge: true });
       this.logEvent('recipe_deleted');
+    },
+    async restoreRecipe(id){
+      if(!this.user) return;
+      await setDoc(doc(collection(db, 'users', this.user.uid, 'recipes'), id), { deletedAt: null }, { merge: true });
+      this.logEvent('recipe_restored');
+    },
+    async purgeRecipe(id){
+      if(!this.user) return;
+      await deleteDoc(doc(collection(db, 'users', this.user.uid, 'recipes'), id));
+      this.logEvent('recipe_purged');
     },
     async signUp(email, password){
       const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -1029,7 +1073,7 @@
       const pubId = `${this.user.uid}_${recipe.id}`;
       const ref = doc(collection(db, 'publicRecipes'), pubId);
       // Personal fields stay private: they are not copied into the public entry.
-      const { favorite, lastCookedAt, ...shared } = recipe;
+      const { favorite, lastCookedAt, deletedAt, ...shared } = recipe;
       await setDoc(ref, {
         ...shared,
         pubId,
@@ -1142,7 +1186,7 @@
 
     if(!user){
       showAuthOverlay();
-      window.ChefCloud._recipeCbs.forEach(cb=>cb([]));
+      window.ChefCloud._recipeCbs.forEach(cb=>cb([], []));
       window.ChefCloud._publicCbs.forEach(cb=>cb([]));
       window.ChefCloud.ready = true;
       window.ChefCloud._readyCbs.forEach(cb=>cb());
@@ -1153,8 +1197,13 @@
     hideAuthOverlay(user);
     const col = collection(db, 'users', user.uid, 'recipes');
     unsubscribeRecipes = onSnapshot(col, (snap)=>{
-      const recipes = snap.docs.map(d=>d.data());
-      window.ChefCloud._recipeCbs.forEach(cb=>cb(recipes));
+      const all = snap.docs.map(d=>d.data());
+      const recipes = all.filter(r=>!r.deletedAt);
+      const trashed = all.filter(r=>r.deletedAt);
+      // Trashed recipes past their 30 days are deleted for good.
+      const cutoff = Date.now() - TRASH_KEEP_MS;
+      trashed.filter(r=>r.deletedAt < cutoff).forEach(r=>window.ChefCloud.purgeRecipe(r.id).catch(()=>{}));
+      window.ChefCloud._recipeCbs.forEach(cb=>cb(recipes, trashed));
       if(!window.ChefCloud.ready){
         window.ChefCloud.ready = true;
         window.ChefCloud._readyCbs.forEach(cb=>cb());
@@ -1173,6 +1222,7 @@
   "use strict";
 
   let recipes = [];
+  let trashedRecipes = [];
   let publicRecipes = [];
   let currentRecipeId = null;
   let currentDetailSource = 'mine'; // 'mine' | 'public'
@@ -1467,6 +1517,111 @@
     window.ChefCloud.updateRecipeFields(id, { favorite: !r.favorite });
   }
 
+  // ---------- trash (deleted recipes are kept 30 days) ----------
+  const TRASH_DAYS = 30;
+  const trashModal = document.getElementById('trashModal');
+  const trashList = document.getElementById('trashList');
+  function daysLeftInTrash(r){
+    const ms = (Number(r.deletedAt) || 0) + TRASH_DAYS * 86400000 - Date.now();
+    return Math.max(0, Math.ceil(ms / 86400000));
+  }
+  function trashFailed(e){
+    console.error(e);
+    alert('Something went wrong. Please try again.');
+  }
+  function renderTrash(){
+    trashList.innerHTML = '';
+    if(!trashedRecipes.length){
+      const empty = document.createElement('div');
+      empty.className = 'trash-empty';
+      empty.textContent = 'The trash is empty.';
+      trashList.appendChild(empty);
+      return;
+    }
+    trashedRecipes.slice().sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0)).forEach(r=>{
+      const row = document.createElement('div');
+      row.className = 'trash-item';
+      const info = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 't-name';
+      name.textContent = `${r.emoji || ''} ${r.name || ''}`.trim();
+      const days = document.createElement('div');
+      days.className = 't-days';
+      days.textContent = `${daysLeftInTrash(r)} days left`;
+      info.append(name, days);
+      const actions = document.createElement('div');
+      actions.className = 't-actions';
+      const restoreBtn = document.createElement('button');
+      restoreBtn.type = 'button';
+      restoreBtn.className = 'btn small';
+      restoreBtn.textContent = '↩ Restore';
+      restoreBtn.addEventListener('click', ()=>{
+        window.ChefCloud.restoreRecipe(r.id).catch(trashFailed);
+      });
+      const purgeBtn = document.createElement('button');
+      purgeBtn.type = 'button';
+      purgeBtn.className = 'btn danger small';
+      purgeBtn.textContent = 'Delete forever';
+      purgeBtn.addEventListener('click', ()=>{
+        if(!confirm('Delete this recipe forever? This cannot be undone.')) return;
+        window.ChefCloud.purgeRecipe(r.id).catch(trashFailed);
+      });
+      actions.append(restoreBtn, purgeBtn);
+      row.append(info, actions);
+      trashList.appendChild(row);
+    });
+  }
+  document.getElementById('trashBtn').addEventListener('click', ()=>{
+    renderTrash();
+    trashModal.classList.add('active');
+  });
+  document.getElementById('closeTrashBtn').addEventListener('click', ()=>{
+    trashModal.classList.remove('active');
+  });
+
+  // ---------- large text (remembered on this device) ----------
+  const LARGE_TEXT_KEY = 'cw_large_text';
+  const largeTextBtn = document.getElementById('largeTextBtn');
+  let largeTextOn = false;
+  try{ largeTextOn = localStorage.getItem(LARGE_TEXT_KEY) === '1'; }catch(e){}
+  function applyLargeText(){
+    document.documentElement.classList.toggle('large-text', largeTextOn);
+    largeTextBtn.classList.toggle('active', largeTextOn);
+    largeTextBtn.setAttribute('aria-pressed', String(largeTextOn));
+  }
+  applyLargeText();
+  largeTextBtn.addEventListener('click', ()=>{
+    largeTextOn = !largeTextOn;
+    applyLargeText();
+    try{ localStorage.setItem(LARGE_TEXT_KEY, largeTextOn ? '1' : '0'); }catch(e){}
+  });
+
+  // ---------- read aloud (cook mode, browser speech) ----------
+  const speechOK = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  function stopSpeaking(){
+    if(speechOK) window.speechSynthesis.cancel();
+  }
+  function speakText(text, btn){
+    if(!speechOK) return;
+    if(window.speechSynthesis.speaking){
+      stopSpeaking();
+      if(btn) btn.textContent = '🔊 Read aloud';
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = /[֐-׿]/.test(text) ? 'he-IL' : 'en-US';
+    const reset = ()=>{ if(btn && btn.isConnected) btn.textContent = '🔊 Read aloud'; };
+    u.onend = reset;
+    u.onerror = reset;
+    if(btn) btn.textContent = '⏹ Stop';
+    window.speechSynthesis.speak(u);
+  }
+
+  // ---------- WhatsApp share (opens WhatsApp with the link ready to send) ----------
+  function openWhatsApp(title, url){
+    window.open(`https://wa.me/?text=${encodeURIComponent(`${title}\n${url}`)}`, '_blank', 'noopener');
+  }
+
   function renderGrid(){
     refreshTagFilter();
     const qRaw = searchInput.value.trim();
@@ -1600,6 +1755,7 @@
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn small save-mine-btn" type="button">📥 Save</button>
           <button class="btn secondary small share-mine-btn" type="button">🔗 Share</button>
+          <button class="btn small wa wa-share-btn" type="button">💬 WhatsApp</button>
         </div>
       `;
       card.addEventListener('click', ()=>openCommunityDetail(r));
@@ -1610,6 +1766,10 @@
       card.querySelector('.share-mine-btn').addEventListener('click', async (e)=>{
         e.stopPropagation();
         await copyToClipboard(shareLinkFor(r.pubId));
+      });
+      card.querySelector('.wa-share-btn').addEventListener('click', (e)=>{
+        e.stopPropagation();
+        openWhatsApp(r.name, shareLinkFor(r.pubId));
       });
       communityGrid.appendChild(card);
     });
@@ -1893,6 +2053,7 @@
     document.getElementById('translateRecipeBtn').style.display = '';
     document.getElementById('saveToMineBtn').style.display = isPublic ? '' : 'none';
     document.getElementById('shareRecipeBtn').style.display = isPublic ? '' : 'none';
+    document.getElementById('waShareRecipeBtn').style.display = isPublic ? '' : 'none';
     const favBtn = document.getElementById('favRecipeBtn');
     const isDebug = String(currentRecipeId || '').startsWith('debug_');
     favBtn.style.display = isPublic || isDebug ? 'none' : '';
@@ -2068,6 +2229,7 @@
     document.getElementById('publishVisibilitySelect').value = existing ? (existing.visibility || 'public') : 'public';
     document.getElementById('unpublishBtn').style.display = existing ? '' : 'none';
     document.getElementById('copyLinkBtn').style.display = existing ? '' : 'none';
+    document.getElementById('whatsappLinkBtn').style.display = existing ? '' : 'none';
     document.getElementById('cancelPublishBtn').textContent = 'Cancel';
     publishStatus.textContent = '';
     publishModal.classList.add('active');
@@ -2083,6 +2245,7 @@
     const pubId = await window.ChefCloud.publishRecipe(r, language, visibility);
     document.getElementById('unpublishBtn').style.display = '';
     document.getElementById('copyLinkBtn').style.display = '';
+    document.getElementById('whatsappLinkBtn').style.display = '';
     document.getElementById('cancelPublishBtn').textContent = 'Close';
     publishStatus.textContent = '✅ Published! Click "Copy link" to share it.';
     publishStatus.dataset.pubId = pubId;
@@ -2100,6 +2263,16 @@
     if(!currentPublicRecipe) return;
     const ok = await copyToClipboard(shareLinkFor(currentPublicRecipe.pubId));
     alert(ok ? 'Link copied to clipboard!' : 'Link shown in the prompt — copy it manually.');
+  });
+
+  document.getElementById('waShareRecipeBtn').addEventListener('click', ()=>{
+    if(!currentPublicRecipe) return;
+    openWhatsApp(currentPublicRecipe.name, shareLinkFor(currentPublicRecipe.pubId));
+  });
+  document.getElementById('whatsappLinkBtn').addEventListener('click', ()=>{
+    const r = findRecipeById(currentRecipeId);
+    if(!r || !window.ChefCloud.user) return;
+    openWhatsApp(r.name, shareLinkFor(`${window.ChefCloud.user.uid}_${currentRecipeId}`));
   });
 
   // ---------- connect Claude (personal link) ----------
@@ -2171,6 +2344,7 @@
   document.getElementById('cookCloseBtn').addEventListener('click', closeCook);
   function closeCook(){
     stopTimer();
+    stopSpeaking();
     releaseWakeLock();
     cookOverlay.classList.remove('active');
   }
@@ -2239,6 +2413,7 @@
     cookProgressLabel.textContent = `Step ${i+1} of ${total}`;
 
     stopTimer();
+    stopSpeaking();
 
     if(i >= total){
       renderDoneScreen();
@@ -2259,6 +2434,7 @@
       <div class="cook-step-card">
         <div class="cook-step-num">${i+1}</div>
         <div class="cook-step-text" dir="auto">${escapeHtml(text)}</div>
+        ${speechOK ? `<button class="btn secondary small read-aloud-btn" id="readAloudBtn" type="button">🔊 Read aloud</button>` : ''}
         ${secs ? `
           <div class="cook-timer show">
             <div class="timer-ring">
@@ -2292,6 +2468,8 @@
       cookState.index += 1;
       renderCookStep();
     });
+    const readAloudBtn = document.getElementById('readAloudBtn');
+    if(readAloudBtn) readAloudBtn.addEventListener('click', ()=>speakText(text, readAloudBtn));
 
     if(secs){
       const toggle = document.getElementById('timerToggle');
@@ -2484,8 +2662,10 @@
   // ---------- init ----------
   function registerRecipeListener(){
     if(!window.ChefCloud) return;
-    window.ChefCloud.onRecipesChange((newRecipes)=>{
+    window.ChefCloud.onRecipesChange((newRecipes, newTrashed)=>{
       recipes = newRecipes;
+      trashedRecipes = newTrashed || [];
+      if(trashModal.classList.contains('active')) renderTrash();
       renderGrid();
       if(views.detail.classList.contains('active') && currentDetailSource === 'mine' && currentRecipeId){
         const stillExists = recipes.some(r=>r.id === currentRecipeId) || currentRecipeId.startsWith('debug_');

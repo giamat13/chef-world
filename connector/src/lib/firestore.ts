@@ -129,7 +129,7 @@ export function restStore(session: Session): Store {
     email: session.email,
 
     async listRecipes(): Promise<Recipe[]> {
-      return (await listAll(session, recipesPath)).map((d) => fromDoc(d).data as Recipe);
+      return (await listAll(session, recipesPath)).map((d) => fromDoc(d).data as Recipe).filter((r) => !r.deletedAt);
     },
 
     async getRecipe(id) {
@@ -137,7 +137,9 @@ export function restStore(session: Session): Store {
       if (status === 404) return null;
       check(status, json);
       const f = fromDoc(json);
-      return { recipe: f.data as Recipe, updateTime: f.updateTime };
+      const recipe = f.data as Recipe;
+      if (recipe.deletedAt) return null; // in the trash: the tools treat it as not found
+      return { recipe, updateTime: f.updateTime };
     },
 
     async putRecipe(recipe, updateTime) {

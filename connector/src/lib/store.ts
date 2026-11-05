@@ -60,11 +60,11 @@ export function mockStore(): Store {
     provider: "password",
     email,
     async listRecipes() {
-      return [...recipes.values()].map((r) => structuredClone(r));
+      return [...recipes.values()].filter((r) => !r.deletedAt).map((r) => structuredClone(r));
     },
     async getRecipe(id) {
       const r = recipes.get(id);
-      return r ? { recipe: structuredClone(r), updateTime: times.get(id) ?? "" } : null;
+      return r && !r.deletedAt ? { recipe: structuredClone(r), updateTime: times.get(id) ?? "" } : null;
     },
     async putRecipe(recipe, updateTime) {
       if (updateTime && times.get(recipe.id) !== updateTime)

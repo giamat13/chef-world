@@ -27,6 +27,8 @@ export type Recipe = {
   /** Personal fields, set by the site's star and Cook mode. They are never published. */
   favorite?: boolean;
   lastCookedAt?: number;
+  /** Set when the recipe is in the app's trash (ms timestamp). Trashed recipes are hidden from the connector. */
+  deletedAt?: number | null;
 };
 
 /** The only fields set_favorite and mark_cooked change. */
