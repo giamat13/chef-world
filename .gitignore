@@ -1,0 +1,24 @@
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor files
+.vscode/
+.idea/
+
+# Local env and secrets
+.env
+.env.*
+
+# Firebase local tooling
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.runtimeconfig.json
+
+# Logs and dependencies
+*.log
+node_modules/
