@@ -1,0 +1,11 @@
+name = "chef-world-connector"
+main = "src/worker.ts"
+compatibility_date = "2025-09-15"
+compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
+
+# Public values only (the Firebase web API key is not a secret; security is firestore.rules).
+[vars]
+FIREBASE_API_KEY = "AIzaSyCC2sJPJKOpWZkQoZCIcbSn0YQLCap3PN8"
+FIREBASE_PROJECT_ID = "chef-world-giamat13"
+# Where the site lives, used to build share links (?r=...). Set it to the real Pages URL.
+SITE_URL = "https://giamat13.github.io/chef-world/"

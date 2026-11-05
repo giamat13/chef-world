@@ -128,7 +128,10 @@
     box-shadow:0 10px 24px rgba(0,0,0,.35);
   }
   .card .emoji{font-size:2.2rem;}
-  .card h3{margin:8px 0 4px;font-size:1.1rem;}
+  .card h3{margin:8px 0 4px;font-size:1.1rem;padding-right:24px;}
+  .card .fav-btn{position:absolute;top:8px;right:10px;background:none;border:none;font-size:1.3rem;line-height:1;color:var(--muted);cursor:pointer;padding:4px;}
+  .card .fav-btn.on{color:var(--accent2);}
+  .btn.secondary.active{border-color:var(--accent);color:var(--accent2);}
   .card .meta{color:var(--muted);font-size:.8rem;display:flex;gap:10px;flex-wrap:wrap;}
   .tag{
     display:inline-block;
@@ -578,6 +581,7 @@
 <div class="account-bar" id="accountBar" style="display:none;">
   <div class="acc-avatar" id="accAvatar">?</div>
   <span id="accEmail"></span>
+  <button id="connectClaudeBtn" style="display:none;">🤖 Connect Claude</button>
   <button id="signOutBtn">Sign out</button>
 </div>
 
@@ -599,6 +603,16 @@
     <div class="toolbar">
       <input id="searchInput" placeholder="Search by name, tag or ingredient...">
       <select id="filterTag"><option value="">All tags</option></select>
+      <select id="sortSelect" title="Sort recipes">
+        <option value="added">Newest first</option>
+        <option value="name">Name (A–Z)</option>
+        <option value="prep">Shortest prep</option>
+        <option value="cooked">Recently cooked</option>
+      </select>
+      <button class="btn secondary small" id="favFilterBtn" type="button" aria-pressed="false">★ Favorites</button>
+      <button class="btn secondary small" id="exportBtn" type="button">⬇ Export</button>
+      <button class="btn secondary small" id="importBtn" type="button">⬆ Import</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div>
     <div class="grid" id="recipeGrid"></div>
     <div class="empty" id="emptyState" style="display:none;">
@@ -779,7 +793,7 @@
   <div class="view" id="view-detail">
     <div class="detail-header">
       <div>
-        <h2 id="d-title">Recipe name</h2>
+        <h2 id="d-title" dir="auto">Recipe name</h2>
         <div class="detail-meta" id="d-meta"></div>
       </div>
       <div class="detail-actions">
@@ -790,6 +804,8 @@
         <button class="btn secondary small" id="translateRecipeBtn">🌐 Translate</button>
         <button class="btn small" id="saveToMineBtn" style="display:none;">📥 Save to My Recipes</button>
         <button class="btn secondary small" id="shareRecipeBtn" style="display:none;">🔗 Share</button>
+        <button class="btn secondary small" id="favRecipeBtn" type="button" style="display:none;">☆ Favorite</button>
+        <button class="btn secondary small" id="unitToggleBtn" type="button">⚖ Units: Original</button>
       </div>
     </div>
     <div class="detail-cols">
@@ -802,7 +818,7 @@
         <ol class="steps-list" id="d-steps"></ol>
         <div id="d-notes-wrap" style="margin-top:14px;display:none;">
           <h4>Notes</h4>
-          <p id="d-notes" style="color:var(--muted);"></p>
+          <p id="d-notes" dir="auto" style="color:var(--muted);"></p>
         </div>
       </div>
     </div>
@@ -847,6 +863,21 @@
   </div>
 </div>
 
+<!-- CONNECT CLAUDE MODAL -->
+<div class="modal-bg" id="claudeModal">
+  <div class="modal-box">
+    <h3>Connect Claude</h3>
+    <p>Paste this link into claude.ai as a custom connector. Claude then works with your recipes as you: it can read, create, edit, publish and delete them.</p>
+    <p style="color:var(--muted);font-size:.85rem;">Anyone with this link can act as you. Signing out everywhere revokes it. Do not share it.</p>
+    <input id="claudeLinkBox" readonly style="width:100%;">
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;flex-wrap:wrap;">
+      <button class="btn" id="copyClaudeLinkBtn">Copy link</button>
+      <button class="btn secondary" id="closeClaudeBtn">Close</button>
+    </div>
+    <div class="auth-error" id="claudeStatus" style="color:var(--good);"></div>
+  </div>
+</div>
+
 <!-- CONFIRM DELETE MODAL -->
 <div class="modal-bg" id="deleteModal">
   <div class="modal-box">
@@ -880,6 +911,9 @@
   // See the Setup section in README.md for the full checklist
   // of what to enable in the Firebase console.
   // =====================================================================
+  // Deployed URL of the Claude connector (folder connector/), e.g. https://chef-world-connector.<account>.workers.dev/mcp
+  // Keep it empty until the connector is deployed: the "Connect Claude" button stays hidden.
+  const CLAUDE_CONNECTOR_URL = 'https://chef-world-connector.furst-itamar.workers.dev/mcp';
   const firebaseConfig = {
     apiKey: "AIzaSyCC2sJPJKOpWZkQoZCIcbSn0YQLCap3PN8",
     authDomain: "chef-world-giamat13.firebaseapp.com",
@@ -948,8 +982,13 @@
     async saveRecipe(recipe){
       if(!this.user) return;
       const ref = doc(collection(db, 'users', this.user.uid, 'recipes'), recipe.id);
-      await setDoc(ref, recipe);
+      // merge keeps personal fields (favorite, lastCookedAt) when a recipe is edited
+      await setDoc(ref, recipe, { merge: true });
       this.logEvent('recipe_saved', { recipe_name: recipe.name });
+    },
+    async updateRecipeFields(id, fields){
+      if(!this.user) return;
+      await setDoc(doc(collection(db, 'users', this.user.uid, 'recipes'), id), fields, { merge: true });
     },
     async deleteRecipe(id){
       if(!this.user) return;
@@ -979,12 +1018,20 @@
     async signOutUser(){
       await signOut(auth);
     },
+    // Personal link for the Claude connector: the user's own refresh token, built on click, never stored or logged.
+    connectLink(){
+      const u = auth.currentUser;
+      if(!u || u.isAnonymous || !u.refreshToken || !CLAUDE_CONNECTOR_URL) return null;
+      return `${CLAUDE_CONNECTOR_URL}?key=${encodeURIComponent(u.refreshToken)}`;
+    },
     async publishRecipe(recipe, language, visibility){
       if(!this.user) return;
       const pubId = `${this.user.uid}_${recipe.id}`;
       const ref = doc(collection(db, 'publicRecipes'), pubId);
+      // Personal fields stay private: they are not copied into the public entry.
+      const { favorite, lastCookedAt, ...shared } = recipe;
       await setDoc(ref, {
-        ...recipe,
+        ...shared,
         pubId,
         sourceId: recipe.id,
         ownerId: this.user.uid,
@@ -1081,6 +1128,7 @@
     const label = user.isAnonymous ? 'Guest' : (user.email || 'Signed in');
     document.getElementById('accEmail').textContent = label;
     document.getElementById('accAvatar').textContent = user.isAnonymous ? '👤' : (user.email || '?')[0].toUpperCase();
+    document.getElementById('connectClaudeBtn').style.display = (CLAUDE_CONNECTOR_URL && !user.isAnonymous) ? '' : 'none';
   }
 
   document.getElementById('signOutBtn').addEventListener('click', ()=>{
@@ -1189,6 +1237,89 @@
     return [quantity, item.unit || '', item.name || ''].filter(Boolean).join(' ');
   }
 
+  // ---------- unit conversion (display only; saved data is never changed) ----------
+  // Unit (and its aliases) -> base unit (g or ml), its size in the base unit, and its system.
+  const UNIT_INFO = Object.create(null);
+  [
+    ['g',    'g',  1,       'metric', ['gram','grams']],
+    ['kg',   'g',  1000,    'metric', ['kilo','kilos','kilogram','kilograms']],
+    ['oz',   'g',  28.3495, 'us',     ['ounce','ounces']],
+    ['lb',   'g',  453.592, 'us',     ['lbs','pound','pounds']],
+    ['ml',   'ml', 1,       'metric', ['milliliter','milliliters','millilitre','millilitres']],
+    ['l',    'ml', 1000,    'metric', ['liter','liters','litre','litres']],
+    ['tsp',  'ml', 4.92892, 'us',     ['teaspoon','teaspoons']],
+    ['tbsp', 'ml', 14.7868, 'us',     ['tbs','tablespoon','tablespoons']],
+    ['cup',  'ml', 236.588, 'us',     ['cups']],
+  ].forEach(([unit, base, factor, system, aliases])=>{
+    [unit, ...aliases].forEach(name=>{ UNIT_INFO[name] = { base, factor, system }; });
+  });
+  const UNIT_SYSTEM_KEY = 'cw_unit_system';
+  const UNIT_SYSTEM_LABELS = { original: 'Original', metric: 'Metric', us: 'US' };
+  const UNIT_SYSTEM_NEXT = { original: 'metric', metric: 'us', us: 'original' };
+  let unitSystem = 'original';
+  try{
+    const savedUnits = localStorage.getItem(UNIT_SYSTEM_KEY);
+    if(Object.prototype.hasOwnProperty.call(UNIT_SYSTEM_LABELS, savedUnits)) unitSystem = savedUnits;
+  }catch(e){}
+  function setUnitSystem(value){
+    unitSystem = value;
+    try{ localStorage.setItem(UNIT_SYSTEM_KEY, value); }catch(e){}
+  }
+  function updateUnitLabels(){
+    document.getElementById('unitToggleBtn').textContent = `⚖ Units: ${UNIT_SYSTEM_LABELS[unitSystem]}`;
+  }
+  function niceNumber(n){
+    const f = n >= 10 ? 1 : (n >= 1 ? 10 : 100);
+    return String(Math.round(n * f) / f);
+  }
+  function convertToSystem(value, unitKey, system){
+    const info = UNIT_INFO[String(unitKey).toLowerCase().replace(/\.$/, '')];
+    if(!info || info.system === system) return null;
+    const amount = value * info.factor; // grams or millilitres
+    let out, unit;
+    if(info.base === 'g'){
+      const heavy = amount >= (system === 'metric' ? 1000 : 453.592);
+      if(system === 'metric'){ out = heavy ? amount / 1000 : amount; unit = heavy ? 'kg' : 'g'; }
+      else { out = heavy ? amount / 453.592 : amount / 28.3495; unit = heavy ? 'lb' : 'oz'; }
+    } else if(system === 'metric'){
+      const large = amount >= 1000;
+      out = large ? amount / 1000 : amount; unit = large ? 'l' : 'ml';
+    } else if(amount >= 236.588){ out = amount / 236.588; unit = 'cup'; }
+    else if(amount >= 14.7868){ out = amount / 14.7868; unit = 'tbsp'; }
+    else { out = amount / 4.92892; unit = 'tsp'; }
+    const shown = niceNumber(out);
+    return { value: shown, unit: unit === 'cup' && shown !== '1' ? 'cups' : unit };
+  }
+  // Reads quantity, unit and name from a structured ingredient, or from its text.
+  function parseIngredientQuantity(item){
+    if(item.section != null) return null;
+    if(item.quantity && item.unit){
+      const q = parseLeadingNumber(String(item.quantity).trim());
+      return q ? { value: q.value, unit: String(item.unit).trim(), name: item.name || '' } : null;
+    }
+    if(item.text == null) return null;
+    const text = String(item.text).trim();
+    const q = parseLeadingNumber(text);
+    if(!q) return null;
+    const m = text.slice(q.matchLength).trim().match(/^([A-Za-z]+\.?)(?:\s+([\s\S]*))?$/);
+    return m ? { value: q.value, unit: m[1], name: m[2] || '' } : null;
+  }
+  // Scales an ingredient by factor, then converts its unit to the chosen system.
+  function formatIngredient(item, factor, system){
+    if(system && system !== 'original'){
+      const parsed = parseIngredientQuantity(item);
+      const conv = parsed && convertToSystem(parsed.value * factor, parsed.unit, system);
+      if(conv) return [conv.value, conv.unit, parsed.name].filter(Boolean).join(' ');
+    }
+    return scaleIngredient(item, factor);
+  }
+  function renderDetailIngredients(r){
+    document.getElementById('d-ingredients').innerHTML = (r.ingredients || []).map(i=>
+      i.section != null
+        ? `<li class="ing-section-header" dir="auto">${escapeHtml(i.section)}</li>`
+        : `<li dir="auto"><span>${escapeHtml(formatIngredient(i, 1, unitSystem))}</span></li>`).join('') || '<li>—</li>';
+  }
+
   // ---------- persistence (Firestore, via window.ChefCloud) ----------
   function uid(){
     return 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -1292,6 +1423,50 @@
     filterTag.value = tags.includes(current) ? current : '';
   }
 
+  // ---------- sorting and favorites ----------
+  const sortSelect = document.getElementById('sortSelect');
+  const favFilterBtn = document.getElementById('favFilterBtn');
+  const SORT_KEY = 'cw_sort';
+  let favOnly = false;
+  try{
+    const savedSort = localStorage.getItem(SORT_KEY);
+    if(savedSort && [...sortSelect.options].some(o=>o.value === savedSort)) sortSelect.value = savedSort;
+  }catch(e){}
+  sortSelect.addEventListener('change', ()=>{
+    try{ localStorage.setItem(SORT_KEY, sortSelect.value); }catch(e){}
+    renderGrid();
+  });
+  favFilterBtn.addEventListener('click', ()=>{
+    favOnly = !favOnly;
+    favFilterBtn.classList.toggle('active', favOnly);
+    favFilterBtn.setAttribute('aria-pressed', String(favOnly));
+    renderGrid();
+  });
+  // Recipe IDs start with "r_" and a base-36 timestamp (see uid()), so the creation
+  // time can be read from the ID. Existing recipes therefore need no migration.
+  function createdAtOf(r){
+    const m = /^r_([0-9a-z]{8})/.exec(String(r.id || ''));
+    return m ? parseInt(m[1], 36) : 0;
+  }
+  function prepMinutes(r){
+    const v = parseFloat(r.prepTime ?? r.time);
+    return Number.isFinite(v) ? v : Infinity;
+  }
+  function sortRecipes(list){
+    const mode = sortSelect.value;
+    const arr = list.slice();
+    if(mode === 'name') arr.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+    else if(mode === 'prep') arr.sort((a,b)=>{ const x = prepMinutes(a), y = prepMinutes(b); return x === y ? 0 : (x < y ? -1 : 1); });
+    else if(mode === 'cooked') arr.sort((a,b)=>((b.lastCookedAt || 0) - (a.lastCookedAt || 0)) || (createdAtOf(b) - createdAtOf(a)));
+    else arr.sort((a,b)=>createdAtOf(b) - createdAtOf(a));
+    return arr;
+  }
+  function toggleFavorite(id){
+    const r = recipes.find(x=>x.id === id);
+    if(!r) return;
+    window.ChefCloud.updateRecipeFields(id, { favorite: !r.favorite });
+  }
+
   function renderGrid(){
     refreshTagFilter();
     const qRaw = searchInput.value.trim();
@@ -1299,12 +1474,13 @@
     const q = qRaw.toLowerCase();
     const tag = filterTag.value;
     const source = isDebug ? DEBUG_RECIPES : recipes;
-    const filtered = source.filter(r=>{
+    const filtered = sortRecipes(source.filter(r=>{
       const matchesTag = !tag || recipeTags(r).includes(tag);
       const hay = (r.name + ' ' + tagsText(r) + ' ' + r.ingredients.map(i=>ingredientDisplay(i)||i.section||'').join(' ')).toLowerCase();
       const matchesQ = isDebug || !q || hay.includes(q);
-      return matchesTag && matchesQ;
-    });
+      const matchesFav = !favOnly || r.favorite === true;
+      return matchesTag && matchesQ && matchesFav;
+    }));
     grid.innerHTML = '';
     if(filtered.length === 0){
       emptyState.style.display = 'block';
@@ -1319,7 +1495,7 @@
       card.className = 'card';
       card.innerHTML = `
         <div class="emoji">${escapeHtml(r.emoji || '🍽️')}</div>
-        <h3>${escapeHtml(r.name)}</h3>
+        <h3 dir="auto">${escapeHtml(r.name)}</h3>
         <div class="meta">
           ${(r.prepTime ?? r.time) ? `<span>⏱ Prep ${escapeHtml(String(r.prepTime ?? r.time))} min</span>` : ''}
           ${r.cookTime ? `<span>🍳 Cook ${escapeHtml(String(r.cookTime))} min</span>` : ''}
@@ -1328,6 +1504,15 @@
         ${recipeTags(r).map(tag=>`<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}
       `;
       card.addEventListener('click', ()=>openDetail(r.id));
+      if(!isDebug){
+        const favEl = document.createElement('button');
+        favEl.type = 'button';
+        favEl.className = 'fav-btn' + (r.favorite ? ' on' : '');
+        favEl.title = r.favorite ? 'Remove from favorites' : 'Add to favorites';
+        favEl.textContent = r.favorite ? '★' : '☆';
+        favEl.addEventListener('click', (e)=>{ e.stopPropagation(); toggleFavorite(r.id); });
+        card.appendChild(favEl);
+      }
       grid.appendChild(card);
     });
   }
@@ -1403,7 +1588,7 @@
       card.className = 'card';
       card.innerHTML = `
         <div class="emoji">${escapeHtml(r.emoji || '🍽️')}</div>
-        <h3>${escapeHtml(r.name)}</h3>
+        <h3 dir="auto">${escapeHtml(r.name)}</h3>
         <div class="meta">
           ${(r.prepTime ?? r.time) ? `<span>⏱ Prep ${escapeHtml(String(r.prepTime ?? r.time))} min</span>` : ''}
           ${r.cookTime ? `<span>🍳 Cook ${escapeHtml(String(r.cookTime))} min</span>` : ''}
@@ -1453,6 +1638,86 @@
     });
   }
 
+  // ---------- export / import (JSON backup) ----------
+  const importFile = document.getElementById('importFile');
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    if(!recipes.length){ alert('No recipes to export yet.'); return; }
+    const payload = { app: 'chef-world', version: 1, exportedAt: new Date().toISOString(), recipes };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chef-world-recipes-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    window.ChefCloud.logEvent('recipes_exported', { count: recipes.length });
+  });
+  document.getElementById('importBtn').addEventListener('click', ()=>importFile.click());
+  importFile.addEventListener('change', async ()=>{
+    const file = importFile.files && importFile.files[0];
+    importFile.value = '';
+    if(!file) return;
+    let data;
+    try{ data = JSON.parse(await file.text()); }
+    catch(e){ alert('This file is not valid JSON.'); return; }
+    const list = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : null);
+    if(!list){ alert('No recipes were found in this file.'); return; }
+    const valid = list.map(sanitizeImportedRecipe).filter(Boolean);
+    if(!valid.length){ alert('No valid recipes were found in this file.'); return; }
+    const skipped = list.length - valid.length;
+    const note = skipped ? ` (${skipped} incomplete entries will be skipped)` : '';
+    if(!confirm(`Import ${valid.length} recipe(s)?${note} Recipes with the same ID as an existing one will be updated.`)) return;
+    try{
+      for(const r of valid) await window.ChefCloud.saveRecipe(r);
+      alert(`Imported ${valid.length} recipe(s).`);
+    }catch(e){
+      console.error('Import failed:', e);
+      alert('Import stopped part-way. Some recipes may not have been saved.');
+    }
+  });
+  // Keeps only known fields and fixes types, so the file can't write arbitrary data.
+  function sanitizeImportedRecipe(raw){
+    if(!raw || typeof raw !== 'object') return null;
+    const name = String(raw.name || '').trim();
+    const steps = (Array.isArray(raw.steps) ? raw.steps : []).map(s=>{
+      const text = String((s && s.text) || '').trim();
+      const secs = Number(s && s.seconds);
+      return text ? { text, seconds: Number.isFinite(secs) && secs > 0 ? Math.round(secs) : null } : null;
+    }).filter(Boolean);
+    if(!name || !steps.length) return null;
+    const ingredients = (Array.isArray(raw.ingredients) ? raw.ingredients : []).map(i=>{
+      if(!i || typeof i !== 'object') return null;
+      if(i.section != null) return { section: String(i.section) };
+      const quantity = String(i.quantity ?? '').trim();
+      const unit = String(i.unit ?? '').trim();
+      const itemName = String(i.name ?? '').trim();
+      const text = i.text != null ? String(i.text) : ingredientDisplay({ quantity, unit, name: itemName });
+      return (quantity || unit || itemName || text) ? { quantity, unit, name: itemName, text } : null;
+    }).filter(Boolean);
+    const tags = recipeTags(raw).map(String);
+    const prep = String(raw.prepTime ?? raw.time ?? '');
+    const recipe = {
+      id: /^r_[0-9a-z]{8,}$/.test(String(raw.id || '')) ? String(raw.id) : uid(),
+      emoji: String(raw.emoji || '🍽️'),
+      name,
+      time: prep,
+      prepTime: prep,
+      cookTime: String(raw.cookTime ?? ''),
+      servings: String(raw.servings ?? ''),
+      servingsUnit: String(raw.servingsUnit || 'servings'),
+      tags,
+      tag: tags.join(', '),
+      difficulty: String(raw.difficulty ?? ''),
+      notes: String(raw.notes ?? ''),
+      ingredients,
+      steps,
+    };
+    if(typeof raw.favorite === 'boolean') recipe.favorite = raw.favorite;
+    if(Number.isFinite(raw.lastCookedAt)) recipe.lastCookedAt = raw.lastCookedAt;
+    return recipe;
+  }
+
   // ---------- form ----------
   const ingList = document.getElementById('ingList');
   const stepList = document.getElementById('stepList');
@@ -1465,7 +1730,7 @@
     const item = typeof value === 'string' ? { name: value } : (value || {});
     row.innerHTML = `<input class="ingredient-quantity" value="${escapeHtml(item.quantity || '')}" type="text" placeholder="Qty">
       <input class="ingredient-unit" value="${escapeHtml(item.unit || '')}" type="text" placeholder="Unit">
-      <input class="ingredient-name" value="${escapeHtml(item.name || item.text || '')}" placeholder="${placeholder}">
+      <input class="ingredient-name" dir="auto" value="${escapeHtml(item.name || item.text || '')}" placeholder="${placeholder}">
       <button type="button" class="remove-x">✕</button>`;
     row.querySelector('.remove-x').addEventListener('click', ()=>row.remove());
     container.appendChild(row);
@@ -1488,7 +1753,7 @@
   function addStepRow(container, textVal='', minutesVal=''){
     const row = document.createElement('div');
     row.className = 'dyn-row step-row';
-    row.innerHTML = `<input class="step-text" value="${escapeHtml(textVal)}" placeholder="Step description">
+    row.innerHTML = `<input class="step-text" dir="auto" value="${escapeHtml(textVal)}" placeholder="Step description">
       <input class="step-minutes" type="number" min="0" step="0.5" value="${escapeHtml(minutesVal)}" placeholder="min" title="Wait time in minutes (leave empty if no waiting is needed)">
       <button type="button" class="remove-x">✕</button>`;
     row.querySelector('.remove-x').addEventListener('click', ()=>row.remove());
@@ -1606,13 +1871,10 @@
     if(extraMeta) metaParts.push(...extraMeta);
     document.getElementById('d-meta').textContent = metaParts.join('   •   ');
 
-    document.getElementById('d-ingredients').innerHTML = (r.ingredients || []).map(i=>
-      i.section != null
-        ? `<li class="ing-section-header">${escapeHtml(i.section)}</li>`
-        : `<li><span>${escapeHtml(ingredientDisplay(i))}</span></li>`).join('') || '<li>—</li>';
+    renderDetailIngredients(r);
 
     document.getElementById('d-steps').innerHTML = (r.steps || []).map(s=>
-      `<li>${escapeHtml(s.text)}</li>`).join('');
+      `<li dir="auto">${escapeHtml(s.text)}</li>`).join('');
 
     const notesWrap = document.getElementById('d-notes-wrap');
     if(r.notes){
@@ -1631,6 +1893,12 @@
     document.getElementById('translateRecipeBtn').style.display = '';
     document.getElementById('saveToMineBtn').style.display = isPublic ? '' : 'none';
     document.getElementById('shareRecipeBtn').style.display = isPublic ? '' : 'none';
+    const favBtn = document.getElementById('favRecipeBtn');
+    const isDebug = String(currentRecipeId || '').startsWith('debug_');
+    favBtn.style.display = isPublic || isDebug ? 'none' : '';
+    const mine = recipes.find(x=>x.id === currentRecipeId);
+    favBtn.textContent = mine && mine.favorite ? '★ Favorited' : '☆ Favorite';
+    updateUnitLabels();
   }
 
   function openDetail(id){
@@ -1757,6 +2025,14 @@
     const r = findRecipeById(currentRecipeId);
     if(r) openForm(r);
   });
+  document.getElementById('favRecipeBtn').addEventListener('click', ()=>{
+    if(currentDetailSource === 'mine') toggleFavorite(currentRecipeId);
+  });
+  document.getElementById('unitToggleBtn').addEventListener('click', ()=>{
+    setUnitSystem(UNIT_SYSTEM_NEXT[unitSystem]);
+    updateUnitLabels();
+    if(currentViewedRecipe) renderDetailIngredients(currentViewedRecipe);
+  });
   document.getElementById('saveToMineBtn').addEventListener('click', ()=>{
     if(!currentPublicRecipe) return;
     saveCopyToMine(currentPublicRecipe);
@@ -1826,11 +2102,52 @@
     alert(ok ? 'Link copied to clipboard!' : 'Link shown in the prompt — copy it manually.');
   });
 
+  // ---------- connect Claude (personal link) ----------
+  const claudeModal = document.getElementById('claudeModal');
+  const claudeLinkBox = document.getElementById('claudeLinkBox');
+  const claudeStatus = document.getElementById('claudeStatus');
+  document.getElementById('connectClaudeBtn').addEventListener('click', ()=>{
+    const link = window.ChefCloud.connectLink();
+    if(!link) return;
+    claudeLinkBox.value = link;
+    claudeStatus.textContent = '';
+    claudeModal.classList.add('active');
+  });
+  document.getElementById('copyClaudeLinkBtn').addEventListener('click', async ()=>{
+    const ok = await copyToClipboard(claudeLinkBox.value);
+    claudeStatus.textContent = ok ? '✅ Link copied.' : 'Select the link above and copy it.';
+  });
+  document.getElementById('closeClaudeBtn').addEventListener('click', ()=>{
+    claudeLinkBox.value = ''; // do not keep the link in the page
+    claudeModal.classList.remove('active');
+  });
+
   // ---------- cook mode ----------
   const cookOverlay = document.getElementById('cookOverlay');
   const cookBody = document.getElementById('cookBody');
   const cookProgressFill = document.getElementById('cookProgressFill');
   const cookProgressLabel = document.getElementById('cookProgressLabel');
+
+  // Keep the screen on while cooking (Screen Wake Lock API; skipped where unsupported).
+  let wakeLock = null;
+  async function requestWakeLock(){
+    if(!('wakeLock' in navigator) || document.visibilityState !== 'visible' || wakeLock) return;
+    try{
+      const lock = await navigator.wakeLock.request('screen');
+      if(!cookOverlay.classList.contains('active')){ lock.release().catch(()=>{}); return; }
+      wakeLock = lock;
+      lock.addEventListener('release', ()=>{ if(wakeLock === lock) wakeLock = null; });
+    }catch(e){ wakeLock = null; }
+  }
+  function releaseWakeLock(){
+    const lock = wakeLock;
+    wakeLock = null;
+    if(lock) lock.release().catch(()=>{});
+  }
+  document.addEventListener('visibilitychange', ()=>{
+    // The browser drops the lock when the tab is hidden, so request it again when visible.
+    if(document.visibilityState === 'visible' && cookOverlay.classList.contains('active')) requestWakeLock();
+  });
 
   document.getElementById('startCookBtn').addEventListener('click', ()=>{
     const r = currentViewedRecipe || (currentDetailSource === 'public' ? currentPublicRecipe : findRecipeById(currentRecipeId));
@@ -1843,6 +2160,10 @@
     cookState.phase = cookState.ingredients.length ? 'ingredients' : 'steps';
     cookState.index = 0;
     cookOverlay.classList.add('active');
+    requestWakeLock();
+    if(currentDetailSource === 'mine' && recipes.some(x=>x.id === r.id)){
+      window.ChefCloud.updateRecipeFields(r.id, { lastCookedAt: Date.now() });
+    }
     renderCookIngredients();
     window.ChefCloud.logEvent('cook_mode_started', { recipe_name: r.name });
   });
@@ -1850,6 +2171,7 @@
   document.getElementById('cookCloseBtn').addEventListener('click', closeCook);
   function closeCook(){
     stopTimer();
+    releaseWakeLock();
     cookOverlay.classList.remove('active');
   }
 
@@ -1869,12 +2191,13 @@
           <span class="serv-count">${escapeHtml(cookState.servingUnit)}: <b id="servCount">${formatScaledNumber(cookState.servings)}</b></span>
           <button type="button" class="serv-btn" id="servUp">+</button>
         </div>
+        <button type="button" class="btn secondary small" id="cookUnitBtn" style="margin-bottom:12px;">⚖ Units: ${UNIT_SYSTEM_LABELS[unitSystem]}</button>
         <ul class="cook-ing-list" id="cookIngList">
           ${cookState.ingredients.map((item,idx)=> item.section != null
             ? `<li class="cook-ing-section" style="animation-delay:${idx*0.05}s">${escapeHtml(item.section)}</li>`
-            : `<li style="animation-delay:${idx*0.05}s">
+            : `<li dir="auto" style="animation-delay:${idx*0.05}s">
                 <input type="checkbox" data-idx="${idx}">
-              <span>${escapeHtml(scaleIngredient(item, factor))}</span>
+              <span>${escapeHtml(formatIngredient(item, factor, unitSystem))}</span>
               </li>`).join('')}
         </ul>
         <div class="cook-nav">
@@ -1894,6 +2217,11 @@
     });
     document.getElementById('servDown').addEventListener('click', ()=>{
       cookState.servings = Math.max(1, cookState.servings - 1);
+      renderCookIngredients();
+    });
+    document.getElementById('cookUnitBtn').addEventListener('click', ()=>{
+      setUnitSystem(UNIT_SYSTEM_NEXT[unitSystem]);
+      updateUnitLabels();
       renderCookIngredients();
     });
     document.getElementById('startStepsBtn').addEventListener('click', ()=>{
@@ -1930,7 +2258,7 @@
     cookBody.innerHTML = `
       <div class="cook-step-card">
         <div class="cook-step-num">${i+1}</div>
-        <div class="cook-step-text">${escapeHtml(text)}</div>
+        <div class="cook-step-text" dir="auto">${escapeHtml(text)}</div>
         ${secs ? `
           <div class="cook-timer show">
             <div class="timer-ring">

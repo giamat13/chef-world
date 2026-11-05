@@ -1,0 +1,25 @@
+{
+  "name": "chef-world-connector",
+  "version": "1.0.0",
+  "description": "Remote MCP server (claude.ai custom connector) for Chef World: manage your recipes and the community feed from Claude.",
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "typecheck": "tsc",
+    "test": "tsx scripts/test-client.ts",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": ["mcp", "model-context-protocol", "claude", "firebase", "recipes"],
+  "author": "GIAMAT13",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.0.0"
+  }
+}
