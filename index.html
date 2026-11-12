@@ -645,6 +645,7 @@
       </select>
       <input id="fridgeInput" placeholder="🧊 What's in my fridge? (eggs, milk, flour)" title="Comma-separated ingredients you have">
       <button class="btn secondary small" id="favFilterBtn" type="button" aria-pressed="false">★ Favorites</button>
+      <button class="btn secondary small" id="foldersBtn" type="button" aria-pressed="false" title="Show tags as folders">📁 Folders</button>
       <button class="btn secondary small" id="exportBtn" type="button">⬇ Export</button>
       <button class="btn secondary small" id="importBtn" type="button">⬆ Import</button>
       <button class="btn secondary small" id="trashBtn" type="button">🗑 Trash</button>
@@ -1565,8 +1566,9 @@
     const tags = [...new Set(recipes.flatMap(recipeTags))];
     const current = filterTag.value;
     filterTag.innerHTML = '<option value="">All tags</option>' +
-      tags.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-    filterTag.value = tags.includes(current) ? current : '';
+      tags.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('') +
+      '<option value="__none__">Untagged</option>';
+    filterTag.value = (tags.includes(current) || current === '__none__') ? current : '';
   }
 
   // ---------- sorting and favorites ----------
@@ -1730,7 +1732,7 @@
     const fridge = fridgeTerms();
     const coverage = new Map(); // recipe id -> {have, total}
     let filtered = source.filter(r=>{
-      const matchesTag = !tag || recipeTags(r).includes(tag);
+      const matchesTag = !tag || (tag === '__none__' ? recipeTags(r).length === 0 : recipeTags(r).includes(tag));
       const hay = (r.name + ' ' + tagsText(r) + ' ' + r.ingredients.map(i=>ingredientDisplay(i)||i.section||'').join(' ')).toLowerCase();
       const matchesQ = isDebug || !q || hay.includes(q);
       const matchesFav = !favOnly || r.favorite === true;
@@ -1757,9 +1759,35 @@
       emptyState.innerHTML = recipes.length === 0
         ? 'No recipes yet 🍳<br>Click "New Recipe" to get started'
         : 'No matching recipes found 🔍';
+      if(foldersMode && tag) addFolderBack();
       return;
     }
     emptyState.style.display = 'none';
+    // Folder view: each tag is a folder card; opening one filters by that tag.
+    if(foldersMode && !tag && !isDebug && !q){
+      const counts = new Map();
+      let untagged = 0;
+      filtered.forEach(r=>{
+        const ts = recipeTags(r);
+        if(!ts.length) untagged++;
+        ts.forEach(t=>counts.set(t, (counts.get(t) || 0) + 1));
+      });
+      const folders = [...counts.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
+      if(untagged) folders.push(['__none__', untagged]);
+      folders.forEach(([name, count])=>{
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="emoji">📁</div>
+          <h3 dir="auto">${escapeHtml(name === '__none__' ? 'Untagged' : name)}</h3>
+          <div class="meta"><span>${count} recipe${count === 1 ? '' : 's'}</span></div>
+        `;
+        card.addEventListener('click', ()=>{ filterTag.value = name; renderGrid(); });
+        grid.appendChild(card);
+      });
+      return;
+    }
+    if(foldersMode && tag) addFolderBack();
     filtered.forEach(r=>{
       const card = document.createElement('div');
       card.className = 'card';
@@ -1789,6 +1817,24 @@
   }
   searchInput.addEventListener('input', renderGrid);
   filterTag.addEventListener('change', renderGrid);
+
+  // ---------- tags as folders ----------
+  let foldersMode = false;
+  const foldersBtn = document.getElementById('foldersBtn');
+  foldersBtn.addEventListener('click', ()=>{
+    foldersMode = !foldersMode;
+    foldersBtn.setAttribute('aria-pressed', String(foldersMode));
+    foldersBtn.classList.toggle('active', foldersMode);
+    filterTag.value = '';
+    renderGrid();
+  });
+  function addFolderBack(){
+    const back = document.createElement('div');
+    back.className = 'card';
+    back.innerHTML = '<div class="emoji">⬅️</div><h3>All folders</h3>';
+    back.addEventListener('click', ()=>{ filterTag.value = ''; renderGrid(); });
+    grid.appendChild(back);
+  }
 
   // ---------- "what's in my fridge" and prep-time filters ----------
   const maxPrepSelect = document.getElementById('maxPrepSelect');
