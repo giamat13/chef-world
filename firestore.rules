@@ -20,8 +20,34 @@ service cloud.firestore {
         && request.auth.uid == request.resource.data.ownerId
         && pubId == request.auth.uid + '_' + request.resource.data.sourceId
         // ownerLabel must never leak the uploader's raw email address.
+        && request.resource.data.ownerLabel is string
+        && request.resource.data.ownerLabel.size() <= 60
         && !request.resource.data.ownerLabel.matches('.*@.*');
       allow delete: if request.auth != null && request.auth.uid == resource.data.ownerId;
+    }
+
+    // Likes: one per user per published recipe, stored at
+    // /publicRecipes/{pubId}/likes/{uid}. A user can only add or remove their own.
+    match /publicRecipes/{pubId}/likes/{likerId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.auth.uid == likerId
+        && request.resource.data.keys().hasOnly(['uid', 'at'])
+        && request.resource.data.uid == likerId
+        && request.resource.data.at is number;
+      allow delete: if request.auth != null && request.auth.uid == likerId;
+    }
+
+    // Lets the community grid count every like at once.
+    match /{path=**}/likes/{likeId} {
+      allow read: if request.auth != null;
+    }
+
+    // Personal state: shopping list, meal plan, cooking log and profile, at
+    // /users/{uid}/state/{shopping|plan|stats|profile}. Private to the user.
+    match /users/{userId}/state/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId
+        && docId in ['shopping', 'plan', 'stats', 'profile'];
     }
 
     // Reviews: one per user per published recipe, stored at

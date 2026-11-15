@@ -22,3 +22,5 @@ ui-debug.log
 # Logs and dependencies
 *.log
 node_modules/
+
+.playwright-mcp/

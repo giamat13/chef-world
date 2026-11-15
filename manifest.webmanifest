@@ -1,0 +1,13 @@
+{
+  "name": "Chef World",
+  "short_name": "Chef World",
+  "description": "Your recipes, step-by-step cooking, shopping list and meal plan.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#fbf6ef",
+  "theme_color": "#c2410c",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

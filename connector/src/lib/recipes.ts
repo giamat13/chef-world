@@ -121,6 +121,9 @@ export function withoutPersonalFields<T extends Recipe>(r: T): T {
   const shared: Partial<Recipe> = { ...r };
   delete shared.favorite;
   delete shared.lastCookedAt;
+  // Personal fields the site adds (times cooked, own rating) stay private too.
+  delete (shared as Record<string, unknown>).cookCount;
+  delete (shared as Record<string, unknown>).myRating;
   return shared as T;
 }
 
