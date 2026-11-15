@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#c2410c">
-<meta name="description" content="Chef World: keep your recipes, cook step by step, plan meals and shopping.">
+<meta name="description" content="Chef World: keep your recipes, cook step by step and share them.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
@@ -403,8 +403,6 @@
 <nav class="nav no-print" aria-label="Main">
   <button class="tab-btn active" data-view="home" type="button"><span class="ico">🏠</span><span>Home</span></button>
   <button class="tab-btn" data-view="library" type="button"><span class="ico">📚</span><span>Recipes</span></button>
-  <button class="tab-btn" data-view="shopping" type="button"><span class="ico">🛒</span><span>Shopping</span></button>
-  <button class="tab-btn" data-view="plan" type="button"><span class="ico">📅</span><span>Plan</span></button>
   <button class="tab-btn" data-view="community" type="button"><span class="ico">🌍</span><span>Community</span></button>
 </nav>
 <button class="fab no-print" id="fabNew" type="button"><span>＋</span><span>New recipe</span></button>
@@ -461,40 +459,6 @@
   </div>
 
   <!-- SHOPPING LIST -->
-  <div class="view" id="view-shopping">
-    <h2 class="view-title">Shopping list</h2>
-    <form class="row" id="shopForm">
-      <input class="grow" id="shopInput" placeholder="Add an item, for example milk" aria-label="Add an item" autocomplete="off">
-      <button class="btn" type="submit">＋ Add</button>
-    </form>
-    <p class="muted" id="shopSummary"></p>
-    <ul class="list" id="shopList"></ul>
-    <div class="empty" id="shopEmpty" style="display:none;"><span class="big">🛒</span><span>Your shopping list is empty</span><br><span>Add items here, or open a recipe and tap "Add to shopping list"</span></div>
-    <div class="row" id="shopActions" style="margin-top:1rem;">
-      <button class="btn wa" id="shopShareBtn" type="button">💬 Send on WhatsApp</button>
-      <button class="btn secondary" id="shopCopyBtn" type="button">📋 Copy list</button>
-      <button class="btn secondary" id="shopClearDoneBtn" type="button">✓ Remove bought items</button>
-      <button class="btn danger adv" id="shopClearAllBtn" type="button">Clear list</button>
-    </div>
-  </div>
-
-  <!-- MEAL PLAN -->
-  <div class="view" id="view-plan">
-    <h2 class="view-title">Meal plan</h2>
-    <div class="row" style="margin-bottom:.8rem;">
-      <button class="btn secondary" id="planPrev" type="button">← Earlier</button>
-      <b class="grow" id="planRange" style="text-align:center;"></b>
-      <button class="btn secondary" id="planNext" type="button">Later →</button>
-    </div>
-    <div id="planDays"></div>
-    <div class="row" style="margin-top:.6rem;">
-      <button class="btn" id="planShopBtn" type="button">🛒 Add this week to the shopping list</button>
-      <button class="btn secondary" id="planFillBtn" type="button">🎲 Fill empty days for me</button>
-      <button class="btn secondary adv" id="planClearBtn" type="button">Clear this week</button>
-    </div>
-  </div>
-
-  <!-- COMMUNITY -->
   <div class="view" id="view-community">
     <h2 class="view-title">Community</h2>
     <div class="seg comm-seg"><button type="button" data-go="community">🌍 All recipes</button><button type="button" data-go="feed">👥 Following</button></div>
@@ -683,8 +647,6 @@
       <button class="btn secondary" id="favRecipeBtn" type="button" style="display:none;">☆ Favorite</button>
       <button class="btn secondary" id="likeRecipeBtn" type="button" style="display:none;">🤍 Like</button>
       <button class="btn" id="saveToMineBtn" type="button" style="display:none;">📥 Save to My Recipes</button>
-      <button class="btn secondary" id="shopAddBtn" type="button">🛒 Add to shopping list</button>
-      <button class="btn secondary" id="planAddBtn" type="button">📅 Add to meal plan</button>
       <button class="btn wa" id="shareTextBtn" type="button">📤 Send recipe</button>
       <button class="btn secondary" id="shareRecipeBtn" type="button" style="display:none;">🔗 Copy link</button>
       <button class="btn wa" id="waShareRecipeBtn" type="button" style="display:none;">💬 WhatsApp</button>
@@ -818,8 +780,6 @@
       <details class="more" style="margin:0;">
         <summary>❓ How does it work?</summary>
         <p>Recipes: all your recipes. Tap one to open it, then tap "Start cooking" to follow it step by step.</p>
-        <p>Shopping: a list of what to buy. Tap an item when it is in your basket.</p>
-        <p>Plan: choose what to cook on each day of the week.</p>
         <p>Community: recipes other people shared. You can save them to your own recipes.</p>
         <p>While cooking you can say "next" or "back" out loud, so your hands stay free.</p>
       </details>
@@ -1047,7 +1007,7 @@
       if(name) return name;
       return this.user.isAnonymous ? 'Guest' : maskEmail(this.user.email);
     },
-    // Personal state documents: shopping, plan, stats, profile.
+    // Personal state documents: stats, profile.
     async saveState(name, data){
       if(!this.user) return;
       await setDoc(doc(collection(db, 'users', this.user.uid, 'state'), name), data);
@@ -1525,14 +1485,14 @@
 
   // ---------- view switching ----------
   const views = {};
-  ['home','me','library','shopping','plan','community','feed','chef','form','translation','detail'].forEach(n=>{ views[n] = $('view-' + n); });
+  ['home','me','library','community','feed','chef','form','translation','detail'].forEach(n=>{ views[n] = $('view-' + n); });
   const tabBtns = document.querySelectorAll('.tab-btn');
   const NAV_GROUP = { me:'home', feed:'community', chef:'community', form:'library', translation:'library' };
   let currentView = 'home';
   let detailReturnView = 'library';
   const RENDERERS = {
-    home: ()=>renderHome(), me: ()=>renderMe(), library: ()=>renderGrid(), shopping: ()=>renderShopping(),
-    plan: ()=>renderPlan(), community: ()=>renderCommunityGrid(), feed: ()=>renderFeed(), chef: ()=>renderChef(),
+    home: ()=>renderHome(), me: ()=>renderMe(), library: ()=>renderGrid(),
+    community: ()=>renderCommunityGrid(), feed: ()=>renderFeed(), chef: ()=>renderChef(),
   };
   function showView(name){
     const changed = name !== currentView;
@@ -1862,8 +1822,7 @@
     if(filtered.length === 0){
       emptyState.style.display = 'block';
       if(recipes.length === 0){
-        emptyState.innerHTML = '<span class="big">🍳</span><span>No recipes yet</span><br><span>Tap "New recipe" to add your first one</span><br><br><button class="btn" type="button" id="addSamplesBtn">✨ Add example recipes</button>';
-        $('addSamplesBtn').addEventListener('click', addSampleRecipes);
+        emptyState.innerHTML = '<span class="big">🍳</span><span>No recipes yet</span><br><span>Tap "New recipe" to add your first one</span>';
       } else {
         emptyState.innerHTML = '<span class="big">🔍</span><span>No matching recipes found</span>';
       }
@@ -2477,7 +2436,6 @@
     show('editRecipeBtn', !isPublic);
     show('deleteRecipeBtn', !isPublic && !isDebug);
     show('duplicateBtn', !!mine);
-    show('planAddBtn', !!mine);
     show('saveToMineBtn', isPublic);
     show('shareRecipeBtn', isPublic);
     show('waShareRecipeBtn', isPublic);
@@ -2570,13 +2528,6 @@
     if(r) shareText(r.name, recipeAsText(r, detailFactor()));
   });
   $('printBtn').addEventListener('click', ()=>window.print());
-  $('shopAddBtn').addEventListener('click', ()=>{
-    if(currentViewedRecipe) addRecipeToShopping(currentViewedRecipe, detailFactor());
-  });
-  $('planAddBtn').addEventListener('click', ()=>{
-    const r = recipes.find(x=>x.id === currentRecipeId);
-    if(r) pickDayFor(r);
-  });
   $('duplicateBtn').addEventListener('click', ()=>{
     const r = recipes.find(x=>x.id === currentRecipeId);
     if(!r) return;
@@ -3504,9 +3455,9 @@
   }
 
   // =====================================================================
-  // Personal data kept in the cloud: shopping list, meal plan, cooking log, profile
+  // Personal data kept in the cloud: cooking log, profile
   // =====================================================================
-  let cloudState = { shopping: { items: [] }, plan: { days: {} }, stats: { cookLog: [] }, profile: {} };
+  let cloudState = { stats: { cookLog: [] }, profile: {} };
   function saveState(name, data){
     cloudState[name] = data;
     return window.ChefCloud.saveState(name, data).catch(e=>{ console.error(e); toast('Could not save. Please try again.'); });
@@ -3551,229 +3502,6 @@
     openModal('pickerModal');
   }
   $('pickerCloseBtn').addEventListener('click', ()=>closeModal('pickerModal'));
-  function pickRecipe(title, onPick){
-    openPicker(title, sortRecipes(recipes).map(r=>({ label: `${r.emoji || '🍽️'} ${r.name}`, onPick: ()=>onPick(r) })),
-      { search: recipes.length > 6, emptyText: 'You have no recipes yet' });
-  }
-
-  // ---------- shopping list ----------
-  function shopItems(){ return (cloudState.shopping && cloudState.shopping.items) || []; }
-  function setShop(items){
-    saveState('shopping', { items: items.slice(0, 300) });
-    if(currentView === 'shopping') renderShopping();
-    if(currentView === 'home') renderHome();
-  }
-  function ingredientsForShopping(r, factor){
-    return (r.ingredients || []).filter(i=>i.section == null)
-      .map(i=>({ id: uid(), text: formatIngredient(i, factor, unitSystem), done: false, from: String(r.name || '') }))
-      .filter(i=>i.text);
-  }
-  function addRecipeToShopping(r, factor){
-    const add = ingredientsForShopping(r, factor);
-    if(!add.length){ toast('This recipe has no ingredients'); return; }
-    setShop(shopItems().concat(add));
-    toast('Added to the shopping list', { action: T('Open list'), onAction: ()=>go('shopping') });
-  }
-  function renderShopping(){
-    const items = shopItems();
-    const list = $('shopList');
-    list.innerHTML = '';
-    const left = items.filter(i=>!i.done).length;
-    $('shopSummary').innerHTML = items.length ? `${left} <span>left to buy</span> · ${items.length - left} <span>in the basket</span>` : '';
-    $('shopEmpty').style.display = items.length ? 'none' : 'block';
-    list.style.display = items.length ? '' : 'none';
-    $('shopActions').style.display = items.length ? '' : 'none';
-    items.slice().sort((a,b)=>Number(!!a.done) - Number(!!b.done)).forEach(it=>{
-      const li = document.createElement('li');
-      if(it.done) li.className = 'done';
-      const label = document.createElement('label');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = !!it.done;
-      cb.addEventListener('change', ()=>setShop(shopItems().map(x=>x.id === it.id ? { ...x, done: cb.checked } : x)));
-      const t = document.createElement('span');
-      t.className = 't';
-      t.dir = 'auto';
-      t.textContent = it.text;
-      if(it.from){
-        const src = document.createElement('span');
-        src.className = 'src';
-        src.textContent = it.from;
-        t.appendChild(src);
-      }
-      label.append(cb, t);
-      const x = document.createElement('button');
-      x.type = 'button';
-      x.className = 'x-btn';
-      x.textContent = '✕';
-      x.setAttribute('aria-label', T('Remove'));
-      x.addEventListener('click', ()=>setShop(shopItems().filter(i=>i.id !== it.id)));
-      li.append(label, x);
-      list.appendChild(li);
-    });
-  }
-  $('shopForm').addEventListener('submit', e=>{
-    e.preventDefault();
-    const input = $('shopInput');
-    const text = input.value.trim();
-    if(!text) return;
-    // Several items can be added at once, separated by commas.
-    setShop(shopItems().concat(text.split(/[,،\n]/).map(s=>s.trim()).filter(Boolean).map(s=>({ id: uid(), text: s.slice(0, 120), done: false }))));
-    input.value = '';
-    input.focus();
-  });
-  function shoppingText(){
-    return [T('Shopping list') + ':'].concat(shopItems().filter(i=>!i.done).map(i=>`▫ ${i.text}`)).join('\n');
-  }
-  $('shopShareBtn').addEventListener('click', ()=>{
-    window.open(`https://wa.me/?text=${encodeURIComponent(shoppingText())}`, '_blank', 'noopener');
-  });
-  $('shopCopyBtn').addEventListener('click', async ()=>{
-    if(await copyToClipboard(shoppingText())) toast('The list was copied');
-  });
-  $('shopClearDoneBtn').addEventListener('click', ()=>setShop(shopItems().filter(i=>!i.done)));
-  $('shopClearAllBtn').addEventListener('click', ()=>{
-    const before = shopItems();
-    if(!before.length) return;
-    setShop([]);
-    toast('The list was cleared', { action: T('Undo'), onAction: ()=>setShop(before) });
-  });
-
-  // ---------- weekly meal plan ----------
-  function startOfWeek(d){ const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return addDays(x, -x.getDay()); }
-  let planWeekStart = startOfWeek(new Date());
-  function planDays(){ return (cloudState.plan && cloudState.plan.days) || {}; }
-  function setPlan(days){
-    // Days more than two months old are dropped so the plan stays small.
-    const cutoff = dayKey(addDays(new Date(), -60));
-    const kept = {};
-    Object.keys(days).forEach(k=>{ if(k >= cutoff && days[k] && days[k].length) kept[k] = days[k]; });
-    saveState('plan', { days: kept });
-    if(currentView === 'plan') renderPlan();
-    if(currentView === 'home') renderHome();
-  }
-  function planEntry(r){ return { id: r.id, name: String(r.name || ''), emoji: String(r.emoji || '🍽️') }; }
-  function addToPlan(key, r){
-    const days = { ...planDays() };
-    days[key] = (days[key] || []).concat([planEntry(r)]).slice(0, 8);
-    setPlan(days);
-  }
-  function dayLabel(d){
-    const today = dayKey(new Date()), k = dayKey(d);
-    const name = d.toLocaleDateString(LOCALE, { weekday: 'long' });
-    const date = d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'numeric' });
-    if(k === today) return `${T('Today')} · ${name} ${date}`;
-    if(k === dayKey(addDays(new Date(), 1))) return `${T('Tomorrow')} · ${name} ${date}`;
-    return `${name} ${date}`;
-  }
-  function pickDayFor(r){
-    const today = new Date();
-    openPicker(T('Which day?'), [0,1,2,3,4,5,6].map(n=>{
-      const d = addDays(today, n);
-      return { label: dayLabel(d), onPick: ()=>{
-        addToPlan(dayKey(d), r);
-        toast('Added to the meal plan', { action: T('Open plan'), onAction: ()=>{ planWeekStart = startOfWeek(d); go('plan'); } });
-      } };
-    }));
-  }
-  function weekKeys(){ return [0,1,2,3,4,5,6].map(n=>dayKey(addDays(planWeekStart, n))); }
-  function renderPlan(){
-    const wrap = $('planDays');
-    const days = planDays();
-    const today = dayKey(new Date());
-    const fmt = d=>d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'long' });
-    $('planRange').textContent = `${fmt(planWeekStart)} – ${fmt(addDays(planWeekStart, 6))}`;
-    wrap.innerHTML = '';
-    [0,1,2,3,4,5,6].forEach(n=>{
-      const d = addDays(planWeekStart, n);
-      const key = dayKey(d);
-      const box = document.createElement('div');
-      box.className = 'day' + (key === today ? ' today' : '');
-      const head = document.createElement('div');
-      head.className = 'day-head';
-      const title = document.createElement('span');
-      title.dir = 'auto';
-      title.textContent = dayLabel(d);
-      const add = document.createElement('button');
-      add.type = 'button';
-      add.className = 'btn secondary small';
-      add.textContent = '＋ Add';
-      add.addEventListener('click', ()=>pickRecipe(dayLabel(d), r=>addToPlan(key, r)));
-      head.append(title, add);
-      const items = document.createElement('div');
-      items.className = 'day-items';
-      (days[key] || []).forEach((it, idx)=>{
-        const chip = document.createElement('span');
-        chip.className = 'plan-chip';
-        const open = document.createElement('button');
-        open.type = 'button';
-        open.dir = 'auto';
-        open.textContent = `${it.emoji || '🍽️'} ${it.name}`;
-        open.addEventListener('click', ()=>{
-          if(recipes.some(x=>x.id === it.id)) openDetail(it.id);
-          else toast('This recipe is no longer in your recipes');
-        });
-        const rm = document.createElement('button');
-        rm.type = 'button';
-        rm.className = 'rm';
-        rm.textContent = '✕';
-        rm.setAttribute('aria-label', T('Remove'));
-        rm.addEventListener('click', ()=>{
-          const next = { ...planDays() };
-          next[key] = (next[key] || []).filter((_, k)=>k !== idx);
-          setPlan(next);
-        });
-        chip.append(open, rm);
-        items.appendChild(chip);
-      });
-      if(!(days[key] || []).length){
-        const none = document.createElement('span');
-        none.className = 'muted';
-        none.textContent = 'Nothing planned';
-        items.appendChild(none);
-      }
-      box.append(head, items);
-      wrap.appendChild(box);
-    });
-  }
-  $('planPrev').addEventListener('click', ()=>{ planWeekStart = addDays(planWeekStart, -7); renderPlan(); });
-  $('planNext').addEventListener('click', ()=>{ planWeekStart = addDays(planWeekStart, 7); renderPlan(); });
-  $('planShopBtn').addEventListener('click', ()=>{
-    const days = planDays();
-    let add = [];
-    weekKeys().forEach(k=>(days[k] || []).forEach(it=>{
-      const r = recipes.find(x=>x.id === it.id);
-      if(r) add = add.concat(ingredientsForShopping(r, 1));
-    }));
-    if(!add.length){ toast('Plan some recipes for this week first'); return; }
-    setShop(shopItems().concat(add));
-    toast('Added to the shopping list', { action: T('Open list'), onAction: ()=>go('shopping') });
-  });
-  $('planFillBtn').addEventListener('click', ()=>{
-    if(!recipes.length){ toast('You have no recipes yet'); return; }
-    const days = { ...planDays() };
-    const today = dayKey(new Date());
-    const used = new Set(weekKeys().flatMap(k=>(days[k] || []).map(it=>it.id)));
-    let pool = recipes.filter(r=>!used.has(r.id));
-    let filled = 0;
-    weekKeys().forEach(k=>{
-      if(k < today || (days[k] || []).length) return;
-      if(!pool.length) pool = recipes.slice();
-      const r = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-      days[k] = [planEntry(r)];
-      filled++;
-    });
-    if(!filled){ toast('Every day this week already has a plan'); return; }
-    setPlan(days);
-    toast('The week is planned. You can change any day.');
-  });
-  $('planClearBtn').addEventListener('click', ()=>{
-    if(!ask('Clear the plan for this week?')) return;
-    const days = { ...planDays() };
-    weekKeys().forEach(k=>{ delete days[k]; });
-    setPlan(days);
-  });
-
   // ---------- "what should I cook?" ----------
   let surpriseRecipe = null;
   function pickSurprise(){
@@ -3846,7 +3574,6 @@
     ['🔥','On a roll','Cook 3 days in a row', ()=>bestStreak() >= 3],
     ['🌟','Full week','Cook 7 days in a row', ()=>bestStreak() >= 7],
     ['⭐','Favorites','Mark 5 favorite recipes', ()=>recipes.filter(r=>r.favorite).length >= 5],
-    ['📅','Planner','Add a recipe to the meal plan', ()=>Object.keys(planDays()).length >= 1],
     ['🌍','Sharing is caring','Publish a recipe', ()=>myPublished().length >= 1],
     ['✍️','Food critic','Review a community recipe', ()=>myReviews().length >= 1],
     ['👥','Good company','Follow a chef', ()=>following.length >= 1],
@@ -3880,9 +3607,7 @@
     const body = $('homeBody');
     const h = new Date().getHours();
     const greet = h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-    const left = shopItems().filter(i=>!i.done).length;
     const resume = getCookProgress();
-    const todays = (planDays()[dayKey(new Date())] || []).filter(it=>recipes.some(r=>r.id === it.id));
     const recent = recipes.filter(r=>r.lastCookedAt).sort((a,b)=>b.lastCookedAt - a.lastCookedAt).slice(0, 8);
     const listed = listedPublicRecipes().filter(p=>p.ownerId !== myUid());
     const daily = listed.length ? listed.slice().sort((a,b)=>String(a.pubId).localeCompare(String(b.pubId)))[Math.floor(Date.now() / 86400000) % listed.length] : null;
@@ -3893,7 +3618,7 @@
         <div class="tiles">
           <button class="tile primary" type="button" id="homeSurprise"><span class="ico">🎲</span><span>What should I cook?</span></button>
           <button class="tile" type="button" id="homeNew"><span class="ico">➕</span><span>New recipe</span></button>
-          <button class="tile" type="button" id="homeShop"><span class="ico">🛒</span><span><span>Shopping list</span>${left ? ` (${left})` : ''}</span></button>
+          <button class="tile" type="button" id="homeShop"><span class="ico">📚</span><span>My recipes</span></button>
           <button class="tile" type="button" id="homeTimer"><span class="ico">⏲</span><span>Kitchen timer</span></button>
         </div>
       </div>
@@ -3901,32 +3626,20 @@
         <div class="grow"><b>Continue cooking</b><div dir="auto">${escapeHtml(resume.recipe.name)}</div></div>
         <button class="btn" type="button" id="homeResume">▶ Continue</button>
         <button class="x-btn" type="button" id="homeResumeX" aria-label="Remove">✕</button></div>` : ''}
-      ${todays.length ? `<div class="banner"><div class="grow"><b>📅 Planned for today</b><div class="day-items" id="homeToday"></div></div></div>` : ''}
       <h3 class="section-title"><span>My kitchen</span><button class="link-btn" type="button" id="homeMe">My achievements</button></h3>
       <div class="panel-box" style="margin-bottom:.7rem;">${levelCardHtml()}</div>
       ${statsHtml()}
       ${recent.length ? `<h3 class="section-title"><span>Cooked recently</span></h3><div class="hscroll" id="homeRecent"></div>` : ''}
       ${daily ? `<h3 class="section-title"><span>Recipe of the day from the community</span></h3><div class="grid" id="homeDaily"></div>` : ''}
-      ${!recipes.length ? `<div class="empty"><span class="big">🍳</span><span>No recipes yet</span><br><br><button class="btn" type="button" id="homeSamples">✨ Add example recipes</button></div>` : ''}`;
+      ${!recipes.length ? `<div class="empty"><span class="big">🍳</span><span>No recipes yet</span><br><span>Tap "New recipe" to add your first one</span></div>` : ''}`;
     $('homeSurprise').addEventListener('click', openSurprise);
     $('homeNew').addEventListener('click', ()=>openForm(null));
-    $('homeShop').addEventListener('click', ()=>go('shopping'));
+    $('homeShop').addEventListener('click', ()=>go('library'));
     $('homeTimer').addEventListener('click', ()=>openModal('timerModal'));
     $('homeMe').addEventListener('click', ()=>go('me'));
     if(resume){
       $('homeResume').addEventListener('click', ()=>startCooking(resume.recipe, 'mine', resume));
       $('homeResumeX').addEventListener('click', ()=>{ clearCookProgress(); renderHome(); });
-    }
-    if(todays.length){
-      todays.forEach(it=>{
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'btn secondary small';
-        b.dir = 'auto';
-        b.textContent = `${it.emoji || '🍽️'} ${it.name}`;
-        b.addEventListener('click', ()=>openDetail(it.id));
-        $('homeToday').appendChild(b);
-      });
     }
     if(recent.length){
       recent.forEach(r=>{
@@ -3939,8 +3652,6 @@
       });
     }
     if(daily) $('homeDaily').appendChild(publicCard(daily, false));
-    const samples = $('homeSamples');
-    if(samples) samples.addEventListener('click', addSampleRecipes);
   }
 
   // ---------- my achievements ----------
@@ -3955,37 +3666,6 @@
       <h3 class="section-title"><span>Cooking diary</span></h3>
       ${log.length ? `<ul class="list">${log.map(x=>`<li><span style="font-size:1.5rem;">${escapeHtml(x.emoji || '🍽️')}</span><span class="t" dir="auto">${escapeHtml(x.name)}</span><span class="muted">${escapeHtml(new Date(x.at).toLocaleDateString(LOCALE))}</span></li>`).join('')}</ul>`
         : '<p class="muted">Dishes you finish cooking will show up here.</p>'}`;
-  }
-
-  // ---------- example recipes for a new, empty library ----------
-  const SAMPLES = {
-    en: [
-      { emoji:'🍳', name:'Soft scrambled eggs', prepTime:'2', cookTime:'4', servings:'1', tags:['Breakfast','Quick'], difficulty:'Easy',
-        ingredients:[['2','','eggs'],['1','tbsp','butter'],['1','pinch','salt']],
-        steps:[['Crack the eggs into a bowl, add the salt and beat with a fork.',null],['Melt the butter in a pan over low heat.',60],['Pour in the eggs and stir gently until they are soft and set.',120]] },
-      { emoji:'🍝', name:'Simple tomato pasta', prepTime:'5', cookTime:'15', servings:'2', tags:['Dinner','Vegetarian'], difficulty:'Easy',
-        ingredients:[['200','g','pasta'],['2','tbsp','olive oil'],['2','','garlic cloves, sliced'],['400','g','crushed tomatoes'],['1','pinch','salt']],
-        steps:[['Boil the pasta in salted water.',600],['Warm the oil in a pan and fry the garlic for one minute.',60],['Add the tomatoes and salt, and simmer.',300],['Drain the pasta, mix it into the sauce and serve.',null]] },
-    ],
-    he: [
-      { emoji:'🍳', name:'ביצה מקושקשת רכה', prepTime:'2', cookTime:'4', servings:'1', servingsUnit:'מנות', tags:['ארוחת בוקר','מהיר'], difficulty:'Easy',
-        ingredients:[['2','','ביצים'],['1','כף','חמאה'],['1','קורט','מלח']],
-        steps:[['שוברים את הביצים לקערה, מוסיפים מלח וטורפים במזלג.',null],['ממיסים את החמאה במחבת על אש קטנה.',60],['שופכים את הביצים ומערבבים בעדינות עד שהן רכות ויציבות.',120]] },
-      { emoji:'🍝', name:'פסטה פשוטה ברוטב עגבניות', prepTime:'5', cookTime:'15', servings:'2', servingsUnit:'מנות', tags:['ארוחת ערב','צמחוני'], difficulty:'Easy',
-        ingredients:[['200','גרם','פסטה'],['2','כפות','שמן זית'],['2','','שיני שום פרוסות'],['400','גרם','עגבניות מרוסקות'],['1','קורט','מלח']],
-        steps:[['מבשלים את הפסטה במים רותחים עם מלח.',600],['מחממים את השמן במחבת ומטגנים את השום דקה.',60],['מוסיפים את העגבניות והמלח ומבשלים על אש קטנה.',300],['מסננים את הפסטה, מערבבים עם הרוטב ומגישים.',null]] },
-    ],
-  };
-  function addSampleRecipes(){
-    (SAMPLES[window.cwLang] || SAMPLES.en).forEach((s, n)=>{
-      const ingredients = s.ingredients.map(([quantity, unit, name])=>({ quantity, unit, name, text: [quantity, unit, name].filter(Boolean).join(' ') }));
-      window.ChefCloud.saveRecipe({
-        id: uid() + n, emoji: s.emoji, name: s.name, time: s.prepTime, prepTime: s.prepTime, cookTime: s.cookTime,
-        servings: s.servings, servingsUnit: s.servingsUnit || 'servings', tags: s.tags, tag: s.tags.join(', '),
-        difficulty: s.difficulty, notes: '', ingredients, steps: s.steps.map(([text, seconds])=>({ text, seconds })),
-      });
-    });
-    toast('Example recipes were added');
   }
 
   // ---------- settings: text size, colors, language, simple mode ----------
@@ -4058,7 +3738,7 @@
         const stillExists = recipes.some(r=>r.id === currentRecipeId) || currentRecipeId.startsWith('debug_');
         if(stillExists){ if(currentViewedRecipe === findRecipeById(currentRecipeId) || !currentViewedRecipe || !currentViewedRecipe.language) openDetail(currentRecipeId); }
         else go('library');
-      } else if(['home','me','library','plan'].includes(currentView)) refreshCurrent();
+      } else if(['home','me','library'].includes(currentView)) refreshCurrent();
     });
     cloud.onPublicRecipesChange((list)=>{
       publicRecipes = list;
@@ -4082,10 +3762,10 @@
     cloud.onStateChange((name, data)=>{
       cloudState[name] = data || {};
       if(name === 'profile') cloud.chefName = (data && data.chefName) || '';
-      if(['home','me','shopping','plan'].includes(currentView)) refreshCurrent();
+      if(['home','me'].includes(currentView)) refreshCurrent();
     });
     cloud.onUserChange((user)=>{
-      cloudState = { shopping: { items: [] }, plan: { days: {} }, stats: { cookLog: [] }, profile: {} };
+      cloudState = { stats: { cookLog: [] }, profile: {} };
       if(!user) return;
       const shared = new URLSearchParams(location.search).get('r');
       go('home');
