@@ -3626,9 +3626,6 @@
         <div class="grow"><b>Continue cooking</b><div dir="auto">${escapeHtml(resume.recipe.name)}</div></div>
         <button class="btn" type="button" id="homeResume">▶ Continue</button>
         <button class="x-btn" type="button" id="homeResumeX" aria-label="Remove">✕</button></div>` : ''}
-      <h3 class="section-title"><span>My kitchen</span><button class="link-btn" type="button" id="homeMe">My achievements</button></h3>
-      <div class="panel-box" style="margin-bottom:.7rem;">${levelCardHtml()}</div>
-      ${statsHtml()}
       ${recent.length ? `<h3 class="section-title"><span>Cooked recently</span></h3><div class="hscroll" id="homeRecent"></div>` : ''}
       ${daily ? `<h3 class="section-title"><span>Recipe of the day from the community</span></h3><div class="grid" id="homeDaily"></div>` : ''}
       ${!recipes.length ? `<div class="empty"><span class="big">🍳</span><span>No recipes yet</span><br><span>Tap "New recipe" to add your first one</span></div>` : ''}`;
@@ -3636,7 +3633,6 @@
     $('homeNew').addEventListener('click', ()=>openForm(null));
     $('homeShop').addEventListener('click', ()=>go('library'));
     $('homeTimer').addEventListener('click', ()=>openModal('timerModal'));
-    $('homeMe').addEventListener('click', ()=>go('me'));
     if(resume){
       $('homeResume').addEventListener('click', ()=>startCooking(resume.recipe, 'mine', resume));
       $('homeResumeX').addEventListener('click', ()=>{ clearCookProgress(); renderHome(); });
