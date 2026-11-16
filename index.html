@@ -894,6 +894,14 @@
     <p>Paste this link into claude.ai as a custom connector. Claude then works with your recipes as you: it can read, create, edit, publish and delete them.</p>
     <p class="muted">Anyone with this link can act as you. Signing out everywhere revokes it. Do not share it.</p>
     <input id="claudeLinkBox" readonly style="width:100%;">
+    <h3 style="margin-top:18px;">API for anything else</h3>
+    <p class="muted">Use your recipes from any app or script: send the key as an Authorization: Bearer header to the address below. The key acts as you, so keep it private.</p>
+    <input id="apiBaseBox" readonly dir="ltr" style="width:100%;">
+    <input id="apiKeyBox" readonly dir="ltr" style="width:100%;margin-top:6px;">
+    <div class="row" style="margin-top:12px;">
+      <button class="btn secondary" id="copyApiBaseBtn" type="button">Copy API address</button>
+      <button class="btn secondary" id="copyApiKeyBtn" type="button">Copy API key</button>
+    </div>
     <div class="row" style="margin-top:12px;">
       <button class="btn" id="copyClaudeLinkBtn" type="button">Copy link</button>
       <button class="btn secondary" id="closeClaudeBtn" type="button">Close</button>
@@ -1095,6 +1103,12 @@
       const u = auth.currentUser;
       if(!u || u.isAnonymous || !u.refreshToken || !CLAUDE_CONNECTOR_URL) return null;
       return `${CLAUDE_CONNECTOR_URL}?key=${encodeURIComponent(u.refreshToken)}`;
+    },
+    // Address and key for the general REST API (same personal key as the Claude link).
+    apiInfo(){
+      const u = auth.currentUser;
+      if(!u || u.isAnonymous || !u.refreshToken || !CLAUDE_CONNECTOR_URL) return null;
+      return { base: CLAUDE_CONNECTOR_URL.replace(/\/mcp\/?$/, '') + '/api/v1', key: u.refreshToken };
     },
     async publishRecipe(recipe, language, visibility){
       if(!this.user) return;
@@ -2824,19 +2838,32 @@
   const claudeModal = document.getElementById('claudeModal');
   const claudeLinkBox = document.getElementById('claudeLinkBox');
   const claudeStatus = document.getElementById('claudeStatus');
+  const apiBaseBox = document.getElementById('apiBaseBox');
+  const apiKeyBox = document.getElementById('apiKeyBox');
   document.getElementById('connectClaudeBtn').addEventListener('click', ()=>{
     const link = window.ChefCloud.connectLink();
     if(!link) return;
     claudeLinkBox.value = link;
+    const api = window.ChefCloud.apiInfo();
+    apiBaseBox.value = api ? api.base : '';
+    apiKeyBox.value = api ? api.key : '';
     claudeStatus.textContent = '';
     claudeModal.classList.add('active');
+  });
+  document.getElementById('copyApiBaseBtn').addEventListener('click', async ()=>{
+    claudeStatus.textContent = (await copyToClipboard(apiBaseBox.value)) ? '✅ API address copied.' : 'Select the address above and copy it.';
+  });
+  document.getElementById('copyApiKeyBtn').addEventListener('click', async ()=>{
+    claudeStatus.textContent = (await copyToClipboard(apiKeyBox.value)) ? '✅ API key copied.' : 'Select the key above and copy it.';
   });
   document.getElementById('copyClaudeLinkBtn').addEventListener('click', async ()=>{
     const ok = await copyToClipboard(claudeLinkBox.value);
     claudeStatus.textContent = ok ? '✅ Link copied.' : 'Select the link above and copy it.';
   });
   document.getElementById('closeClaudeBtn').addEventListener('click', ()=>{
-    claudeLinkBox.value = ''; // do not keep the link in the page
+    claudeLinkBox.value = ''; // do not keep the link or key in the page
+    apiBaseBox.value = '';
+    apiKeyBox.value = '';
     claudeModal.classList.remove('active');
   });
 

@@ -33,6 +33,23 @@ Anyone with the link acts as you. Signing out everywhere revokes it, and you can
 
 Cards: results open in an inline card. Items in lists and sections are clickable, with a back button.
 
+## REST API (for anything else)
+
+The same Worker serves a JSON API at `/api/v1`, with the same personal key (Chef World: Connect Claude shows the address and the key). Send `Authorization: Bearer <key>` (or `?key=<key>`). `GET /api/v1` lists all routes:
+
+- `GET /me`, `GET/POST /recipes`, `GET/PUT/PATCH/DELETE /recipes/:id`
+- `POST /recipes/:id/favorite`, `POST /recipes/:id/cooked`, `POST/DELETE /recipes/:id/publish`
+- `GET /community`, `GET /community/:pubId`, `POST /community/:pubId/save`
+- `GET /export`, `POST /import`
+
+```
+curl -H "Authorization: Bearer $KEY" https://<worker>/api/v1/recipes?q=soup
+curl -X POST -H "Authorization: Bearer $KEY" -H "content-type: application/json" \
+  -d '{"name":"Tea","steps":["Boil water","Steep 3 min"]}' https://<worker>/api/v1/recipes
+```
+
+Errors are JSON `{"error": "..."}` with a status code (400, 401, 404, 413...). CORS is open, so browser apps can call it.
+
 ## Not reproduced from the site
 
 - **AI import from text or a link** (the site's Gemini call). Claude does this directly: paste the text or the link into the chat and Claude calls `create_recipe`.

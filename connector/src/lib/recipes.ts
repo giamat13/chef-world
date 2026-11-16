@@ -22,6 +22,8 @@ export type Recipe = {
   tag: string;
   difficulty: string;
   notes: string;
+  /** Link to the original recipe (http/https only), optional. */
+  sourceUrl?: string;
   ingredients: Ingredient[];
   steps: Step[];
   /** Personal fields, set by the site's star and Cook mode. They are never published. */
@@ -56,11 +58,22 @@ export type RecipeInput = {
   tags?: string[];
   difficulty?: string;
   notes?: string;
+  sourceUrl?: string;
   ingredients?: { section?: string; quantity?: string; unit?: string; name?: string }[];
   steps?: { text: string; minutes?: number | null }[];
 };
 
-export const newRecipeId = (): string => "r_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+/** Only http/https links are kept. */
+export function safeHttpUrl(v: unknown): string {
+  try {
+    const u = new URL(String(v ?? "").trim());
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : "";
+  } catch {
+    return "";
+  }
+}
+
+export const newRecipeId =(): string => "r_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 export function maskEmail(email: string): string {
   if (!email) return "Chef";
@@ -111,6 +124,7 @@ export function buildRecipe(id: string, input: RecipeInput, base?: Recipe): Reci
     tag: tags.join(", "),
     difficulty: input.difficulty ?? b.difficulty ?? "",
     notes: input.notes ?? b.notes ?? "",
+    sourceUrl: input.sourceUrl !== undefined ? safeHttpUrl(input.sourceUrl) : safeHttpUrl(b.sourceUrl),
     ingredients,
     steps,
   };
@@ -172,6 +186,7 @@ export function sanitizeImported(raw: unknown): Recipe | null {
     tag: tags.join(", "),
     difficulty: String(o.difficulty ?? ""),
     notes: String(o.notes ?? ""),
+    sourceUrl: safeHttpUrl(o.sourceUrl),
     ingredients,
     steps,
   };

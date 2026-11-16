@@ -92,6 +92,7 @@ const fieldShape = {
   tags: z.array(z.string().trim().min(1).max(40)).max(20).optional().describe("Categories, e.g. ['Vegetarian', 'Dinner', 'Italian']."),
   difficulty: z.enum(["", "Easy", "Medium", "Hard"]).optional().describe("Easy, Medium, Hard, or '' for none."),
   notes: z.string().max(2000).optional().describe("Tips or notes, e.g. 'Rest the dough overnight.'"),
+  sourceUrl: z.string().trim().max(500).optional().describe("Link to the original recipe (http/https), or '' for none."),
   ingredients: z.array(ingredientSchema).max(200).optional().describe("The full ingredient list. Replaces the old list when updating."),
   steps: z.array(stepSchema).max(200).optional().describe("The full step list. Replaces the old steps when updating; at least one step is required."),
 };
