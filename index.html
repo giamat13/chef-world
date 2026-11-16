@@ -502,7 +502,7 @@
     <div class="ai-box">
       <button class="btn secondary block" id="aiImportToggle" type="button">✨ Fill it in for me with AI</button>
       <div id="aiImportPanel" style="display:none;margin-top:.7rem;">
-        <p class="muted">Paste recipe text or a link, or tap the microphone and just say the recipe.</p>
+        <p class="muted">Paste recipe text, a link or a YouTube video link, or tap the microphone and just say the recipe.</p>
         <textarea id="aiImportText" rows="5" dir="auto" placeholder="Paste recipe text or a link here" style="width:100%;"></textarea>
         <div class="row" style="margin-top:.5rem;">
           <button class="btn" id="aiImportBtn" type="button">✨ Create recipe</button>
@@ -575,6 +575,11 @@
       <div class="form-row">
         <label for="f-notes">Notes (optional)</label>
         <textarea id="f-notes" rows="2" dir="auto" placeholder="Tips, variations..."></textarea>
+      </div>
+
+      <div class="form-row">
+        <label for="f-source-url">Original recipe link (optional)</label>
+        <input id="f-source-url" type="url" dir="ltr" inputmode="url" placeholder="https://...">
       </div>
     </div>
     <div class="sticky-actions" style="margin-top:1rem;">
@@ -680,6 +685,10 @@
         <div id="d-notes-wrap" style="margin-top:14px;display:none;">
           <h4>Notes</h4>
           <p id="d-notes" dir="auto"></p>
+        </div>
+        <div id="d-source-wrap" style="margin-top:14px;display:none;">
+          <h4>Original recipe</h4>
+          <p><a id="d-source" dir="ltr" target="_blank" rel="noopener noreferrer" style="word-break:break-all;"></a></p>
         </div>
       </div>
     </div>
@@ -1141,7 +1150,12 @@
       const snap = await getDoc(doc(collection(db, 'publicRecipes'), pubId));
       return snap.exists() ? snap.data() : null;
     },
-    async generateRecipe(prompt, fromUrl){
+    async generateRecipe(prompt, fromUrl, youtubeUrl){
+      // A YouTube link is handed to Gemini as a video: it reads the spoken audio, captions and on-screen text.
+      if(youtubeUrl) return recipeModel.generateContent([
+        { fileData: { mimeType: 'video/mp4', fileUri: youtubeUrl } },
+        { text: prompt },
+      ]);
       return (fromUrl ? recipeModelFromUrl : recipeModel).generateContent(prompt);
     },
   };
@@ -2000,12 +2014,40 @@
     catch(e){ window.prompt('Copy this link:', text); return false; }
   }
 
+  // Only http(s) links are ever stored or rendered as a clickable link.
+  function safeHttpUrl(value){
+    const s = String(value ?? '').trim();
+    if(!s) return '';
+    try{
+      const u = new URL(s);
+      return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : '';
+    }catch(e){ return ''; }
+  }
+  // Recognises youtube.com / youtu.be / shorts / embed links and returns the plain watch URL, or ''.
+  function youtubeWatchUrl(value){
+    const s = String(value ?? '').trim();
+    if(!/^https?:\/\//i.test(s)) return '';
+    let u;
+    try{ u = new URL(s); }catch(e){ return ''; }
+    const host = u.hostname.toLowerCase().replace(/^(www\.|m\.|music\.)/, '');
+    let id = '';
+    if(host === 'youtu.be') id = u.pathname.split('/')[1] || '';
+    else if(host === 'youtube.com' || host === 'youtube-nocookie.com'){
+      if(u.pathname === '/watch') id = u.searchParams.get('v') || '';
+      else{
+        const m = u.pathname.match(/^\/(?:shorts|embed|live|v)\/([^/?#]+)/);
+        if(m) id = m[1];
+      }
+    }
+    return /^[A-Za-z0-9_-]{6,20}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : '';
+  }
+
   function saveCopyToMine(r){
     window.ChefCloud.saveRecipe({
       id: uid(),
       emoji: r.emoji || '🍽️', name: r.name || '', time: r.time ?? '', prepTime: r.prepTime ?? r.time ?? '', cookTime: r.cookTime ?? '',
       servings: r.servings ?? '', servingsUnit: r.servingsUnit || 'servings', tags: recipeTags(r), tag: tagsText(r),
-      difficulty: r.difficulty ?? '', notes: r.notes ?? '', ingredients: r.ingredients || [], steps: r.steps || [],
+      difficulty: r.difficulty ?? '', notes: r.notes ?? '', sourceUrl: safeHttpUrl(r.sourceUrl), ingredients: r.ingredients || [], steps: r.steps || [],
     });
     toast('Saved to your recipes');
   }
@@ -2244,6 +2286,7 @@
       tag: tags.join(', '),
       difficulty: String(raw.difficulty ?? ''),
       notes: String(raw.notes ?? ''),
+      sourceUrl: safeHttpUrl(raw.sourceUrl),
       ingredients,
       steps,
     };
@@ -2307,6 +2350,7 @@
     document.getElementById('f-tags').value = '';
     document.getElementById('f-difficulty').value = '';
     document.getElementById('f-notes').value = '';
+    document.getElementById('f-source-url').value = '';
     ingList.innerHTML = '';
     stepList.innerHTML = '';
     addDynRow(ingList, 'e.g. 200g flour');
@@ -2328,6 +2372,7 @@
       document.getElementById('f-tags').value = tagsText(recipe);
       document.getElementById('f-difficulty').value = recipe.difficulty || '';
       document.getElementById('f-notes').value = recipe.notes || '';
+      document.getElementById('f-source-url').value = recipe.sourceUrl || '';
       ingList.innerHTML = '';
       stepList.innerHTML = '';
       (recipe.ingredients||[]).forEach(i=> i.section != null
@@ -2384,6 +2429,7 @@
       tag: document.getElementById('f-tags').value.trim(),
       difficulty: document.getElementById('f-difficulty').value,
       notes: document.getElementById('f-notes').value.trim(),
+      sourceUrl: safeHttpUrl(document.getElementById('f-source-url').value),
       ingredients,
       steps,
     };
@@ -2425,6 +2471,10 @@
     const notesWrap = $('d-notes-wrap');
     notesWrap.style.display = r.notes ? 'block' : 'none';
     $('d-notes').textContent = r.notes || '';
+    const sourceUrl = safeHttpUrl(r.sourceUrl);
+    $('d-source-wrap').style.display = sourceUrl ? 'block' : 'none';
+    $('d-source').href = sourceUrl || '#';
+    $('d-source').textContent = sourceUrl;
   }
 
   function updateDetailActionsVisibility(){
@@ -2517,6 +2567,8 @@
     L.push('', T('Instructions') + ':');
     (r.steps || []).forEach((s,k)=>L.push(`${k + 1}. ${s.text}`));
     if(r.notes) L.push('', r.notes);
+    const src = safeHttpUrl(r.sourceUrl);
+    if(src) L.push('', src);
     return L.join('\n');
   }
   function shareText(title, text){
@@ -3291,8 +3343,8 @@
     const a = s.indexOf('{'), b = s.lastIndexOf('}');
     return JSON.parse(a >= 0 && b > a ? s.slice(a, b + 1) : s);
   }
-  async function aiJson(lines, fromUrl){
-    const result = await window.ChefCloud.generateRecipe(lines.join('\n'), fromUrl);
+  async function aiJson(lines, fromUrl, youtubeUrl){
+    const result = await window.ChefCloud.generateRecipe(lines.join('\n'), fromUrl, youtubeUrl);
     return parseAiJson(result.response.text());
   }
   function fillFormFromAi(recipe){
@@ -3318,11 +3370,11 @@
   const aiStatus = $('aiImportStatus');
   function setAiPanel(open){ aiPanel.style.display = open ? 'block' : 'none'; }
   $('aiImportToggle').addEventListener('click', ()=>setAiPanel(aiPanel.style.display !== 'block'));
-  async function runAiFill(lines, fromUrl, waitMsg){
+  async function runAiFill(lines, fromUrl, waitMsg, youtubeUrl){
     aiBtn.disabled = true;
     aiStatus.textContent = waitMsg;
     try{
-      fillFormFromAi(await aiJson(lines, fromUrl));
+      fillFormFromAi(await aiJson(lines, fromUrl, youtubeUrl));
       setAiPanel(false);
       aiStatus.textContent = '';
       aiText.value = '';
@@ -3338,6 +3390,18 @@
     if(!text){ aiStatus.textContent = 'Paste or say the recipe first.'; return; }
     stopDictation();
     const isUrl = /^https?:\/\/\S+$/i.test(text);
+    const youtubeUrl = isUrl ? youtubeWatchUrl(text) : '';
+    // Any pasted link (YouTube or a regular page) becomes the recipe's "original recipe" link.
+    if(isUrl) $('f-source-url').value = safeHttpUrl(text);
+    if(youtubeUrl){
+      runAiFill([
+        'The attached video is a cooking video. Extract the recipe it teaches.',
+        'Use the spoken audio, the subtitles/captions, any text shown on screen and the video description if you can see it.',
+        'Write the recipe in the same language as the video.',
+        ...AI_SCHEMA_LINES,
+      ], false, '⏳ Watching the video…', youtubeUrl);
+      return;
+    }
     runAiFill([
       isUrl ? `Open this URL and read the recipe on that page: ${text}` : 'Convert the following recipe text to JSON. It may be a spoken, informal description.',
       'Write the recipe in the same language as the source.',
