@@ -1013,11 +1013,12 @@
   });
   // Same model, but with the URL-context tool enabled so it can fetch and
   // read a pasted recipe link itself instead of only seeing raw text.
+  // Time limit: on some pages this tool never answers; better to stop and say so than wait forever.
   const recipeModelFromUrl = getGenerativeModel(ai, {
     model: AI_MODEL,
     tools: [{ urlContext: {} }],
     generationConfig: { ...FAST_THINKING },
-  });
+  }, { timeout: 60000 });
   // Did the URL-context tool manage to open the page? Returns '' when yes or unknown.
   function urlRetrievalProblem(response){
     const meta = response?.candidates?.[0]?.urlContextMetadata?.urlMetadata;
@@ -1033,7 +1034,8 @@
     try{
       const res = await fetch('https://r.jina.ai/' + url, { signal: ctrl.signal, headers: { 'Accept': 'text/plain' } });
       if(!res.ok) throw new Error('Page reader HTTP ' + res.status);
-      return (await res.text()).slice(0, 60000);
+      // Recipe blogs often put the recipe after a long story and comments; keep plenty of the page.
+      return (await res.text()).slice(0, 120000);
     } finally { clearTimeout(timer); }
   }
   let analytics = null;
@@ -1257,8 +1259,27 @@
           { fileData: { mimeType: 'video/mp4', fileUri: youtubeUrl } },
           { text: prompt },
         ], 'watching-video');
-        if(pageUrl) return run(recipeModelFromUrl, prompt, 'opening-page');
+        if(pageUrl) return readLink();
         return run(recipeModel, prompt, 'thinking');
+      };
+      // Links: first fetch the page text ourselves (a few seconds, works on very large pages such as
+      // recipe blogs with hundreds of comments, where the model's own URL tool gave up without an
+      // answer), then the fast JSON model reads it. Only when that fails, the model opens the URL itself.
+      let pageText = null;
+      const readLink = async ()=>{
+        if(pageText === null){
+          onProgress('fetching-page');
+          try{ pageText = await fetchPageText(pageUrl); }
+          catch(e){ console.warn('Page reader failed, letting the AI open the page itself:', e); pageText = ''; }
+        }
+        if(pageText.length > 200){
+          onProgress('page-read', { chars: pageText.length });
+          return run(recipeModel,
+            `Below is the text of the web page ${pageUrl}. Read the recipe from it and ignore comments, ads and other recipes.\n`
+            + prompt.replace(/^Open this URL[^\n]*\n/, '') + `\n\nPage text:\n${pageText}`,
+            'thinking');
+        }
+        return run(recipeModelFromUrl, prompt, 'opening-page');
       };
       onProgress('security');
       try{ await getAppCheckToken(appCheck); }catch(e){ console.warn('App Check token failed:', e); }
@@ -1286,13 +1307,10 @@
           `Open this YouTube page and read the recipe from the video title, description and comments: ${youtubeUrl}\n${prompt}`,
           'opening-page');
       }
-      if(pageUrl){
+      // A link whose page text we have but the AI could not use: let the AI try opening the page itself.
+      if(pageUrl && pageText){
         onProgress('page-reader');
-        const text = await fetchPageText(pageUrl).catch(e=>{ console.warn('Page reader failed:', e); throw failure; });
-        onProgress('page-read', { chars: text.length });
-        return run(recipeModel,
-          `Below is the text of the web page ${pageUrl}. Read the recipe from it.\n${prompt}\n\nPage text:\n${text}`,
-          'thinking');
+        return run(recipeModelFromUrl, prompt, 'opening-page');
       }
       throw failure;
     },
@@ -3594,7 +3612,8 @@
     'thinking': 'The AI is reading the recipe…',
     'retry-token': 'It failed, trying again with a new connection…',
     'video-page': 'The video could not be watched, reading its page instead…',
-    'page-reader': 'The AI could not open the site, fetching the page another way…',
+    'fetching-page': 'Fetching the page…',
+    'page-reader': 'That did not work, the AI is opening the page itself…',
     'page-read': 'Page fetched, the AI is reading it…',
     'retry-json': 'The answer came back broken, asking again…',
     'filling': 'Filling in the form…',
