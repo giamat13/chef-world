@@ -342,7 +342,7 @@ async function route(request: Request, url: URL, segs: string[]): Promise<Respon
 const INDEX = {
   name: "Chef World API",
   version: 1,
-  auth: "Send your personal key as 'Authorization: Bearer <key>' (or ?key=<key>). Get it from Chef World: Connect Claude / API.",
+  auth: "Send your personal key as 'Authorization: Bearer <key>' (or ?key=<key>). Create your own key in Chef World: Connect Claude, section 'API for anything else' (keys start with cw_ and can be revoked there).",
   routes: [
     "GET    /api/v1/me",
     "GET    /api/v1/recipes?q=&tag=&favorite=1&sort=added|name|prep|cooked&limit=&full=1",

@@ -85,6 +85,22 @@ service cloud.firestore {
         && chefId != userId;
     }
 
+    // Personal API keys: /apiKeys/{sha256 of the key}. The id cannot be guessed and the
+    // stored token is encrypted with the key itself, so a single document may be read
+    // without sign-in (that is how the API server looks a key up). Listing is owner-only.
+    match /apiKeys/{keyId} {
+      allow get: if true;
+      allow list: if request.auth != null && request.auth.uid == resource.data.ownerId;
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.ownerId
+        && keyId.size() == 64
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 60
+        && request.resource.data.blob is string
+        && request.resource.data.blob.size() <= 2000;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.ownerId;
+    }
+
     // Deny everything else by default.
     match /{document=**} {
       allow read, write: if false;

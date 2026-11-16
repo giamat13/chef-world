@@ -895,12 +895,17 @@
     <p class="muted">Anyone with this link can act as you. Signing out everywhere revokes it. Do not share it.</p>
     <input id="claudeLinkBox" readonly style="width:100%;">
     <h3 style="margin-top:18px;">API for anything else</h3>
-    <p class="muted">Use your recipes from any app or script: send the key as an Authorization: Bearer header to the address below. The key acts as you, so keep it private.</p>
+    <p class="muted">Create your own key for any app or script and send it as an Authorization: Bearer header to the address below. A key can read, edit and delete everything in your account, so keep it private. You can revoke it here at any time.</p>
     <input id="apiBaseBox" readonly dir="ltr" style="width:100%;">
-    <input id="apiKeyBox" readonly dir="ltr" style="width:100%;margin-top:6px;">
-    <div class="row" style="margin-top:12px;">
-      <button class="btn secondary" id="copyApiBaseBtn" type="button">Copy API address</button>
-      <button class="btn secondary" id="copyApiKeyBtn" type="button">Copy API key</button>
+    <div class="row" style="margin-top:8px;">
+      <input id="apiKeyName" maxlength="60" placeholder="Key name, e.g. My app" style="flex:1;">
+      <button class="btn small" id="createApiKeyBtn" type="button">Create key</button>
+    </div>
+    <input id="apiKeyBox" readonly dir="ltr" style="width:100%;margin-top:6px;display:none;">
+    <div id="apiKeyList" style="margin-top:8px;"></div>
+    <div class="row" style="margin-top:8px;">
+      <button class="btn secondary small" id="copyApiBaseBtn" type="button">Copy API address</button>
+      <button class="btn secondary small" id="copyApiKeyBtn" type="button" style="display:none;">Copy new key</button>
     </div>
     <div class="row" style="margin-top:12px;">
       <button class="btn" id="copyClaudeLinkBtn" type="button">Copy link</button>
@@ -966,7 +971,7 @@
     signInAnonymously
   } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
   import {
-    getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, collectionGroup, doc, setDoc, deleteDoc, getDoc, onSnapshot
+    getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, collectionGroup, doc, setDoc, deleteDoc, getDoc, getDocs, query, where, onSnapshot
   } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
   import {
     getAnalytics, logEvent, isSupported as analyticsIsSupported
@@ -1104,11 +1109,36 @@
       if(!u || u.isAnonymous || !u.refreshToken || !CLAUDE_CONNECTOR_URL) return null;
       return `${CLAUDE_CONNECTOR_URL}?key=${encodeURIComponent(u.refreshToken)}`;
     },
-    // Address and key for the general REST API (same personal key as the Claude link).
+    // General REST API: address plus personal keys. A key is random; Firestore keeps only its hash and the
+    // refresh token encrypted with the key itself, so the database alone cannot be used to act as the user.
     apiInfo(){
       const u = auth.currentUser;
       if(!u || u.isAnonymous || !u.refreshToken || !CLAUDE_CONNECTOR_URL) return null;
-      return { base: CLAUDE_CONNECTOR_URL.replace(/\/mcp\/?$/, '') + '/api/v1', key: u.refreshToken };
+      return { base: CLAUDE_CONNECTOR_URL.replace(/\/mcp\/?$/, '') + '/api/v1' };
+    },
+    async createApiKey(name){
+      const u = auth.currentUser;
+      if(!u || u.isAnonymous || !u.refreshToken) throw new Error('Sign in with an account first.');
+      const te = new TextEncoder();
+      const sha = (s)=>crypto.subtle.digest('SHA-256', te.encode(s));
+      const b64u = (buf)=>btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+      const secret = 'cw_' + b64u(crypto.getRandomValues(new Uint8Array(32)));
+      const id = [...new Uint8Array(await sha('id:' + secret))].map(x=>x.toString(16).padStart(2,'0')).join('');
+      const aes = await crypto.subtle.importKey('raw', await sha('enc:' + secret), 'AES-GCM', false, ['encrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = new Uint8Array(await crypto.subtle.encrypt({ name:'AES-GCM', iv }, aes, te.encode(u.refreshToken)));
+      const all = new Uint8Array(12 + ct.length); all.set(iv); all.set(ct, 12);
+      await setDoc(doc(db, 'apiKeys', id), { ownerId: u.uid, name: String(name || 'API key').slice(0, 60), blob: b64u(all), createdAt: Date.now() });
+      return secret;
+    },
+    async listApiKeys(){
+      const u = auth.currentUser;
+      if(!u) return [];
+      const snap = await getDocs(query(collection(db, 'apiKeys'), where('ownerId', '==', u.uid)));
+      return snap.docs.map(d=>({ id: d.id, name: d.data().name || 'API key', createdAt: d.data().createdAt || 0 })).sort((a,b)=>b.createdAt-a.createdAt);
+    },
+    async revokeApiKey(id){
+      await deleteDoc(doc(db, 'apiKeys', id));
     },
     async publishRecipe(recipe, language, visibility){
       if(!this.user) return;
@@ -2840,20 +2870,57 @@
   const claudeStatus = document.getElementById('claudeStatus');
   const apiBaseBox = document.getElementById('apiBaseBox');
   const apiKeyBox = document.getElementById('apiKeyBox');
+  const apiKeyList = document.getElementById('apiKeyList');
+  const copyApiKeyBtn = document.getElementById('copyApiKeyBtn');
   document.getElementById('connectClaudeBtn').addEventListener('click', ()=>{
     const link = window.ChefCloud.connectLink();
     if(!link) return;
     claudeLinkBox.value = link;
     const api = window.ChefCloud.apiInfo();
     apiBaseBox.value = api ? api.base : '';
-    apiKeyBox.value = api ? api.key : '';
+    apiKeyBox.value = '';
+    apiKeyBox.style.display = 'none';
+    copyApiKeyBtn.style.display = 'none';
     claudeStatus.textContent = '';
     claudeModal.classList.add('active');
+    renderApiKeys();
+  });
+  async function renderApiKeys(){
+    apiKeyList.textContent = '';
+    let keys = [];
+    try{ keys = await window.ChefCloud.listApiKeys(); }catch(e){ return; }
+    keys.forEach(k=>{
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.cssText = 'justify-content:space-between;align-items:center;margin-top:4px;';
+      const label = document.createElement('span');
+      label.textContent = `${k.name} · ${new Date(k.createdAt).toLocaleDateString()}`;
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'btn secondary small'; del.textContent = 'Revoke';
+      del.addEventListener('click', async ()=>{
+        try{ await window.ChefCloud.revokeApiKey(k.id); claudeStatus.textContent = '✅ Key revoked.'; }
+        catch(e){ claudeStatus.textContent = 'Could not revoke the key.'; }
+        renderApiKeys();
+      });
+      row.append(label, del);
+      apiKeyList.appendChild(row);
+    });
+  }
+  document.getElementById('createApiKeyBtn').addEventListener('click', async ()=>{
+    try{
+      const key = await window.ChefCloud.createApiKey(document.getElementById('apiKeyName').value.trim());
+      apiKeyBox.value = key;
+      apiKeyBox.style.display = '';
+      copyApiKeyBtn.style.display = '';
+      claudeStatus.textContent = '✅ Key created. Copy it now: it is shown only once.';
+      document.getElementById('apiKeyName').value = '';
+      renderApiKeys();
+    }catch(e){ claudeStatus.textContent = 'Could not create the key.'; }
   });
   document.getElementById('copyApiBaseBtn').addEventListener('click', async ()=>{
     claudeStatus.textContent = (await copyToClipboard(apiBaseBox.value)) ? '✅ API address copied.' : 'Select the address above and copy it.';
   });
-  document.getElementById('copyApiKeyBtn').addEventListener('click', async ()=>{
+  copyApiKeyBtn.addEventListener('click', async ()=>{
     claudeStatus.textContent = (await copyToClipboard(apiKeyBox.value)) ? '✅ API key copied.' : 'Select the key above and copy it.';
   });
   document.getElementById('copyClaudeLinkBtn').addEventListener('click', async ()=>{
@@ -2864,6 +2931,7 @@
     claudeLinkBox.value = ''; // do not keep the link or key in the page
     apiBaseBox.value = '';
     apiKeyBox.value = '';
+    apiKeyList.textContent = '';
     claudeModal.classList.remove('active');
   });
 

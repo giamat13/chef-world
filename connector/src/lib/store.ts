@@ -3,6 +3,7 @@
 import { UpstreamError } from "./http.js";
 import type { PersonalFields, Pub, Recipe } from "./recipes.js";
 import { restStore } from "./firestore.js";
+import { isApiKey, refreshTokenFromApiKey } from "./apikeys.js";
 import { currentKey, sessionFromRefreshToken } from "./session.js";
 
 export interface Store {
@@ -28,8 +29,9 @@ const KEY_RE = /^[A-Za-z0-9_.-]{40,600}$/;
 
 /** The store for the link of the current request. Throws a readable error when there is no valid link. */
 export async function currentStore(): Promise<Store> {
-  const key = currentKey();
+  let key = currentKey();
   if (MOCK && key === "mock") return mockStore();
+  if (isApiKey(key)) key = await refreshTokenFromApiKey(key);
   if (!KEY_RE.test(key))
     throw new UpstreamError(
       "This connector needs your personal Claude link. In Chef World, sign in, click 'Connect Claude', and paste that link into claude.ai.",
