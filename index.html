@@ -1204,13 +1204,23 @@
     // A returning user can hold an expired or stale App Check token, which makes the first AI call fail
     // while a fresh guest works. On failure, fetch a brand-new token and try once more.
     async generateRecipe(prompt, fromUrl, youtubeUrl, attachments){
+      const once = ()=>this._generateRecipeOnce(prompt, fromUrl, youtubeUrl, attachments);
       try{
-        return await this._generateRecipeOnce(prompt, fromUrl, youtubeUrl, attachments);
+        return await once();
       }catch(first){
         console.warn('AI call failed, retrying with a fresh App Check token:', first);
         try{ await getAppCheckToken(appCheck, true); }catch(e){ console.warn('App Check refresh failed:', e); }
         try{ await this.user?.getIdToken?.(true); }catch(e){}
-        return await this._generateRecipeOnce(prompt, fromUrl, youtubeUrl, attachments);
+        try{
+          return await once();
+        }catch(second){
+          if(!youtubeUrl) throw second;
+          // Some videos cannot be watched by the model (too long, age-restricted, region-locked).
+          // Fall back to reading the video's page: title, description and pinned comment.
+          console.warn('Video could not be read, falling back to its page:', second);
+          return recipeModelFromUrl.generateContent(
+            `Open this YouTube page and read the recipe from the video title, description and comments: ${youtubeUrl}\n${prompt}`);
+        }
       }
     },
     async _generateRecipeOnce(prompt, fromUrl, youtubeUrl, attachments){
@@ -3463,8 +3473,15 @@
     return JSON.parse(a >= 0 && b > a ? s.slice(a, b + 1) : s);
   }
   async function aiJson(lines, fromUrl, youtubeUrl, attachments){
-    const result = await window.ChefCloud.generateRecipe(lines.join('\n'), fromUrl, youtubeUrl, attachments);
-    return parseAiJson(result.response.text());
+    const ask = ()=>window.ChefCloud.generateRecipe(lines.join('\n'), fromUrl, youtubeUrl, attachments)
+      .then(result=>parseAiJson(result.response.text()));
+    // Now and then the model answers with broken or cut-off JSON; one more try usually fixes it.
+    try{ return await ask(); }
+    catch(e){
+      if(!(e instanceof SyntaxError)) throw e;
+      console.warn('AI answer was not valid JSON, asking again:', e);
+      return ask();
+    }
   }
   function fillFormFromAi(recipe){
     $('f-emoji').value = recipe.emoji || '';
@@ -3605,10 +3622,14 @@
     // Text files are simply added to the typed text; photos and PDFs travel as attachments.
     const text = [typed, ...aiFiles.filter(f=>f.text != null).map(f=>f.text)].filter(Boolean).join('\n\n').trim();
     const attachments = aiFiles.filter(f=>f.data);
-    const isUrl = /^https?:\/\/\S+$/i.test(text);
-    const youtubeUrl = isUrl ? youtubeWatchUrl(text) : '';
+    // Sharing from the YouTube app or a browser on a phone often adds the title around the link
+    // ("Best pasta 🍝 https://youtu.be/..."). A short text holding one link counts as that link.
+    const linkMatch = text.match(/https?:\/\/[^\s<>"']+/i);
+    const linkUrl = linkMatch ? safeHttpUrl(linkMatch[0].replace(/[).,!?]+$/, '')) : '';
+    const isUrl = !!linkUrl && text.length - linkMatch[0].length <= 200;
+    const youtubeUrl = isUrl ? youtubeWatchUrl(linkUrl) : '';
     // Any pasted link (YouTube or a regular page) becomes the recipe's "original recipe" link.
-    if(isUrl) $('f-source-url').value = safeHttpUrl(text);
+    if(isUrl) $('f-source-url').value = linkUrl;
     if(attachments.length){
       runAiFill([
         'The attached image(s) or document(s) contain a recipe: a cookbook page, a handwritten note, a screenshot or a printout.',
@@ -3630,7 +3651,7 @@
       return;
     }
     runAiFill([
-      isUrl ? `Open this URL and read the recipe on that page: ${text}` : 'Convert the following recipe text to JSON. It may be a spoken, informal description.',
+      isUrl ? `Open this URL and read the recipe on that page: ${linkUrl}` : 'Convert the following recipe text to JSON. It may be a spoken, informal description.',
       'Write the recipe in the same language as the source.',
       ...AI_SCHEMA_LINES,
       ...(isUrl ? [] : ['', 'Recipe text:', text]),
@@ -4064,7 +4085,24 @@
   if(window.ChefCloud) registerCloud();
   else window.addEventListener('chefcloud-ready', registerCloud, { once:true });
   if(timers.length) runTimers();
-  if('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+  // Service worker. A tab or installed app that stays open for days keeps running old code, so:
+  // check for a new version whenever the app comes back to the screen (and every hour), and when one
+  // takes over, reload — unless the user is in the middle of editing, then offer a refresh button.
+  if('serviceWorker' in navigator && location.protocol === 'https:'){
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+      if(!hadController || reloading) return;
+      const busy = currentView === 'form' || document.querySelector('.modal-bg.active');
+      if(!busy){ reloading = true; location.reload(); return; }
+      toast('A new version of Chef World is ready.', { action: 'Refresh', onAction: ()=>{ reloading = true; location.reload(); } });
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg=>{
+      const check = ()=>reg.update().catch(()=>{});
+      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') check(); });
+      setInterval(check, 60 * 60 * 1000);
+    }).catch(()=>{});
+  }
 })();
 </script>
 </body>
