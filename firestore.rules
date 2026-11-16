@@ -45,8 +45,11 @@ service cloud.firestore {
 
     // Personal state: cooking log and profile, at
     // /users/{uid}/state/{stats|profile}. Private to the user.
+    // Reads are limited to the owner's own uid; a collection listener cannot
+    // prove docId is 'stats' or 'profile', so the docId check applies to writes only.
     match /users/{userId}/state/{docId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update, delete: if request.auth != null && request.auth.uid == userId
         && docId in ['stats', 'profile'];
     }
 
@@ -74,8 +77,11 @@ service cloud.firestore {
     }
 
     // Chefs a user follows: /users/{uid}/following/{chefUid}. Private to the user.
+    // Reads are limited to the owner's own uid; a collection listener cannot
+    // prove chefId != userId, so that check applies to writes only.
     match /users/{userId}/following/{chefId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update, delete: if request.auth != null && request.auth.uid == userId
         && chefId != userId;
     }
 
