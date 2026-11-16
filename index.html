@@ -977,7 +977,7 @@
     getAnalytics, logEvent, isSupported as analyticsIsSupported
   } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-analytics.js";
   import {
-    initializeAppCheck, ReCaptchaEnterpriseProvider
+    initializeAppCheck, ReCaptchaEnterpriseProvider, getToken as getAppCheckToken
   } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app-check.js";
   import {
     getAI, getGenerativeModel, GoogleAIBackend
@@ -1201,7 +1201,19 @@
       const snap = await getDoc(doc(collection(db, 'publicRecipes'), pubId));
       return snap.exists() ? snap.data() : null;
     },
+    // A returning user can hold an expired or stale App Check token, which makes the first AI call fail
+    // while a fresh guest works. On failure, fetch a brand-new token and try once more.
     async generateRecipe(prompt, fromUrl, youtubeUrl, attachments){
+      try{
+        return await this._generateRecipeOnce(prompt, fromUrl, youtubeUrl, attachments);
+      }catch(first){
+        console.warn('AI call failed, retrying with a fresh App Check token:', first);
+        try{ await getAppCheckToken(appCheck, true); }catch(e){ console.warn('App Check refresh failed:', e); }
+        try{ await this.user?.getIdToken?.(true); }catch(e){}
+        return await this._generateRecipeOnce(prompt, fromUrl, youtubeUrl, attachments);
+      }
+    },
+    async _generateRecipeOnce(prompt, fromUrl, youtubeUrl, attachments){
       // Photos and PDFs go inline; Gemini reads cookbook pages, handwriting and screenshots directly.
       if(attachments && attachments.length) return recipeModel.generateContent([
         ...attachments.map(a=>({ inlineData: { mimeType: a.mimeType, data: a.data } })),
@@ -3580,7 +3592,8 @@
       renderAiFiles();
       toast('The recipe is filled in. Check it and tap Save.');
     }catch(e){
-      aiStatus.textContent = '❌ It did not work. Please try again.';
+      const detail = String((e && e.message) || '').replace(/^.*?:\s*/, '').slice(0, 120);
+      aiStatus.textContent = '❌ It did not work. Please try again.' + (detail ? ` (${detail})` : '');
       console.error('AI import error:', e);
     }
     aiBtn.disabled = false;
