@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<link rel="preconnect" href="https://firebasevertexai.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://content-firebaseappcheck.googleapis.com" crossorigin>
 <meta name="theme-color" content="#c2410c">
 <meta name="description" content="Chef World: keep your recipes, cook step by step and share them.">
 <link rel="manifest" href="manifest.webmanifest">
@@ -994,13 +996,46 @@
   try{ db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
   catch(e){ db = getFirestore(app); }
   const ai = getAI(app, { backend: new GoogleAIBackend() });
-  const recipeModel = getGenerativeModel(ai, { model: 'gemini-3.6-flash' });
+  // Speed: copying a recipe into a form needs little reasoning, so thinking is kept low.
+  // JSON mode makes the model answer with clean JSON straight away (no retries over broken text).
+  const AI_MODEL = 'gemini-3.6-flash';
+  const FAST_THINKING = { thinkingConfig: { thinkingLevel: 'LOW' } };
+  const recipeModel = getGenerativeModel(ai, {
+    model: AI_MODEL,
+    generationConfig: { ...FAST_THINKING, responseMimeType: 'application/json' },
+  });
+  // Plain-text answers (Ask the AI chef).
+  const chatModel = getGenerativeModel(ai, { model: AI_MODEL, generationConfig: { ...FAST_THINKING } });
+  // Videos: low media resolution is far fewer tokens per frame and plenty to read a recipe.
+  const recipeVideoModel = getGenerativeModel(ai, {
+    model: AI_MODEL,
+    generationConfig: { ...FAST_THINKING, responseMimeType: 'application/json', mediaResolution: 'MEDIA_RESOLUTION_LOW' },
+  });
   // Same model, but with the URL-context tool enabled so it can fetch and
   // read a pasted recipe link itself instead of only seeing raw text.
   const recipeModelFromUrl = getGenerativeModel(ai, {
-    model: 'gemini-3.6-flash',
+    model: AI_MODEL,
     tools: [{ urlContext: {} }],
+    generationConfig: { ...FAST_THINKING },
   });
+  // Did the URL-context tool manage to open the page? Returns '' when yes or unknown.
+  function urlRetrievalProblem(response){
+    const meta = response?.candidates?.[0]?.urlContextMetadata?.urlMetadata;
+    if(!Array.isArray(meta) || !meta.length) return '';
+    if(meta.some(m=>/SUCCESS/.test(m?.urlRetrievalStatus || ''))) return '';
+    return String(meta[0]?.urlRetrievalStatus || 'URL_RETRIEVAL_STATUS_ERROR');
+  }
+  // Fallback reader for pages the model could not open itself: a public service that returns the
+  // page as plain text and allows calls from the browser. Only the recipe link is sent to it.
+  async function fetchPageText(url){
+    const ctrl = new AbortController();
+    const timer = setTimeout(()=>ctrl.abort(), 20000);
+    try{
+      const res = await fetch('https://r.jina.ai/' + url, { signal: ctrl.signal, headers: { 'Accept': 'text/plain' } });
+      if(!res.ok) throw new Error('Page reader HTTP ' + res.status);
+      return (await res.text()).slice(0, 60000);
+    } finally { clearTimeout(timer); }
+  }
   let analytics = null;
   analyticsIsSupported().then(ok=>{ if(ok) analytics = getAnalytics(app); }).catch(()=>{});
 
@@ -1201,40 +1236,97 @@
       const snap = await getDoc(doc(collection(db, 'publicRecipes'), pubId));
       return snap.exists() ? snap.data() : null;
     },
-    // A returning user can hold an expired or stale App Check token, which makes the first AI call fail
-    // while a fresh guest works. On failure, fetch a brand-new token and try once more.
-    async generateRecipe(prompt, fromUrl, youtubeUrl, attachments){
-      const once = ()=>this._generateRecipeOnce(prompt, fromUrl, youtubeUrl, attachments);
+    // Returns the model's raw answer text. onProgress(stage, info) reports what is really happening
+    // right now: each stage is reported when it starts, and 'receiving' with the text streamed so far.
+    // Fallbacks, in order:
+    //  - any failure: fetch a brand-new App Check and sign-in token and try again (a returning user can
+    //    hold a stale or expired token, while a fresh guest gets new ones);
+    //  - a page the model could not open: fetch its text another way and hand that to the model;
+    //  - a video the model could not watch: read the video's page (title, description, comments).
+    async generateRecipe(prompt, opts){
+      const { pageUrl = '', youtubeUrl = '', attachments = [], onProgress = ()=>{} } = opts || {};
+      const run = (model, content, stage)=>this._streamText(model, content, stage, onProgress);
+      const primary = ()=>{
+        // Photos and PDFs go inline; Gemini reads cookbook pages, handwriting and screenshots directly.
+        if(attachments.length) return run(recipeModel, [
+          ...attachments.map(a=>({ inlineData: { mimeType: a.mimeType, data: a.data } })),
+          { text: prompt },
+        ], 'reading-files');
+        // A YouTube link is handed to Gemini as a video: it reads the spoken audio, captions and on-screen text.
+        if(youtubeUrl) return run(recipeVideoModel, [
+          { fileData: { mimeType: 'video/mp4', fileUri: youtubeUrl } },
+          { text: prompt },
+        ], 'watching-video');
+        if(pageUrl) return run(recipeModelFromUrl, prompt, 'opening-page');
+        return run(recipeModel, prompt, 'thinking');
+      };
+      onProgress('security');
+      try{ await getAppCheckToken(appCheck); }catch(e){ console.warn('App Check token failed:', e); }
+      let failure;
       try{
-        return await once();
+        return await primary();
       }catch(first){
-        console.warn('AI call failed, retrying with a fresh App Check token:', first);
+        failure = first;
+        console.warn('AI call failed:', first);
+      }
+      if(failure.code !== 'url-unreadable'){
+        onProgress('retry-token');
         try{ await getAppCheckToken(appCheck, true); }catch(e){ console.warn('App Check refresh failed:', e); }
         try{ await this.user?.getIdToken?.(true); }catch(e){}
         try{
-          return await once();
+          return await primary();
         }catch(second){
-          if(!youtubeUrl) throw second;
-          // Some videos cannot be watched by the model (too long, age-restricted, region-locked).
-          // Fall back to reading the video's page: title, description and pinned comment.
-          console.warn('Video could not be read, falling back to its page:', second);
-          return recipeModelFromUrl.generateContent(
-            `Open this YouTube page and read the recipe from the video title, description and comments: ${youtubeUrl}\n${prompt}`);
+          failure = second;
+          console.warn('AI call failed again:', second);
         }
       }
+      if(youtubeUrl){
+        onProgress('video-page');
+        return run(recipeModelFromUrl,
+          `Open this YouTube page and read the recipe from the video title, description and comments: ${youtubeUrl}\n${prompt}`,
+          'opening-page');
+      }
+      if(pageUrl){
+        onProgress('page-reader');
+        const text = await fetchPageText(pageUrl).catch(e=>{ console.warn('Page reader failed:', e); throw failure; });
+        onProgress('page-read', { chars: text.length });
+        return run(recipeModel,
+          `Below is the text of the web page ${pageUrl}. Read the recipe from it.\n${prompt}\n\nPage text:\n${text}`,
+          'thinking');
+      }
+      throw failure;
     },
-    async _generateRecipeOnce(prompt, fromUrl, youtubeUrl, attachments){
-      // Photos and PDFs go inline; Gemini reads cookbook pages, handwriting and screenshots directly.
-      if(attachments && attachments.length) return recipeModel.generateContent([
-        ...attachments.map(a=>({ inlineData: { mimeType: a.mimeType, data: a.data } })),
-        { text: prompt },
-      ]);
-      // A YouTube link is handed to Gemini as a video: it reads the spoken audio, captions and on-screen text.
-      if(youtubeUrl) return recipeModel.generateContent([
-        { fileData: { mimeType: 'video/mp4', fileUri: youtubeUrl } },
-        { text: prompt },
-      ]);
-      return (fromUrl ? recipeModelFromUrl : recipeModel).generateContent(prompt);
+    warmAi(){ getAppCheckToken(appCheck).catch(()=>{}); },
+    // Free-text answer (Ask the AI chef), streamed to onText as it arrives.
+    async askText(prompt, onText = ()=>{}){
+      try{ await getAppCheckToken(appCheck); }catch(e){}
+      const result = await chatModel.generateContentStream(prompt);
+      let text = '';
+      for await (const chunk of result.stream){
+        try{ text += chunk.text(); }catch(e){}
+        onText(text);
+      }
+      return text;
+    },
+    async _streamText(model, content, stage, onProgress){
+      onProgress(stage);
+      const result = await model.generateContentStream(content);
+      let text = '', problem = '';
+      for await (const chunk of result.stream){
+        if(!problem) problem = urlRetrievalProblem(chunk);
+        let piece = '';
+        try{ piece = chunk.text(); }catch(e){}
+        if(piece){ text += piece; onProgress('receiving', { text }); }
+      }
+      if(!problem){ try{ problem = urlRetrievalProblem(await result.response); }catch(e){} }
+      if(!text){ try{ text = (await result.response).text(); }catch(e){} }
+      // The URL tool could not open the page (blocked, paywall, error) and no recipe came back.
+      if(problem && !/"ingredients"\s*:\s*\[\s*\{/.test(text)){
+        const err = new Error('The site could not be opened (' + problem.replace('URL_RETRIEVAL_STATUS_', '').toLowerCase() + ')');
+        err.code = 'url-unreadable';
+        throw err;
+      }
+      return text;
     },
   };
   window.dispatchEvent(new Event('chefcloud-ready'));
@@ -2677,13 +2769,14 @@
     out.textContent = T('Thinking…');
     $('aiAskBtn').disabled = true;
     try{
-      const res = await window.ChefCloud.generateRecipe([
+      // Streamed: the answer appears word by word as it is written.
+      const answer = await window.ChefCloud.askText([
         'You are a friendly cooking helper. Answer the question about the recipe below.',
         'Answer briefly and clearly, in simple words, as plain text without markdown.',
         `Answer in ${window.cwLang === 'he' ? 'Hebrew' : 'the language of the question'}.`,
         '', 'Recipe:', recipeAsText(r, 1), '', 'Question: ' + q,
-      ].join('\n'), false);
-      out.textContent = res.response.text().trim();
+      ].join('\n'), (soFar)=>{ out.textContent = soFar; });
+      out.textContent = answer.trim();
     }catch(e){
       console.error(e);
       out.textContent = T('The AI chef is not available right now. Please try again.');
@@ -3472,16 +3565,52 @@
     const a = s.indexOf('{'), b = s.lastIndexOf('}');
     return JSON.parse(a >= 0 && b > a ? s.slice(a, b + 1) : s);
   }
-  async function aiJson(lines, fromUrl, youtubeUrl, attachments){
-    const ask = ()=>window.ChefCloud.generateRecipe(lines.join('\n'), fromUrl, youtubeUrl, attachments)
-      .then(result=>parseAiJson(result.response.text()));
+  async function aiJson(lines, pageUrl, youtubeUrl, attachments, onProgress = ()=>{}){
+    const ask = ()=>window.ChefCloud.generateRecipe(lines.join('\n'), { pageUrl, youtubeUrl, attachments, onProgress })
+      .then(parseAiJson);
     // Now and then the model answers with broken or cut-off JSON; one more try usually fixes it.
-    try{ return await ask(); }
+    let recipe;
+    try{ recipe = await ask(); }
     catch(e){
       if(!(e instanceof SyntaxError)) throw e;
       console.warn('AI answer was not valid JSON, asking again:', e);
-      return ask();
+      onProgress('retry-json');
+      recipe = await ask();
     }
+    // A reply with no name and no ingredients means the AI found no recipe (or could not read the source).
+    if(!recipe || typeof recipe !== 'object' || (!recipe.name && !(recipe.ingredients || []).length)){
+      const err = new Error('No recipe was found there');
+      err.code = 'no-recipe';
+      throw err;
+    }
+    return recipe;
+  }
+  // Live status of the AI import: the real current stage, plus the seconds since it started.
+  const AI_STAGE_TEXT = {
+    'security': 'Checking the connection…',
+    'opening-page': 'The AI is opening the page…',
+    'watching-video': 'The AI is watching the video…',
+    'reading-files': 'The AI is reading the files…',
+    'thinking': 'The AI is reading the recipe…',
+    'retry-token': 'It failed, trying again with a new connection…',
+    'video-page': 'The video could not be watched, reading its page instead…',
+    'page-reader': 'The AI could not open the site, fetching the page another way…',
+    'page-read': 'Page fetched, the AI is reading it…',
+    'retry-json': 'The answer came back broken, asking again…',
+    'filling': 'Filling in the form…',
+  };
+  function aiProgressText(stage, info){
+    if(stage !== 'receiving') return T(AI_STAGE_TEXT[stage] || 'Working on it…');
+    // Counted from the answer that has arrived so far, not estimated.
+    const s = info.text || '';
+    const name = (s.match(/"name"\s*:\s*"((?:[^"\\]|\\.){1,80})"/) || [])[1];
+    const ingredients = (s.match(/"quantity"\s*:/g) || []).length;
+    const steps = (s.match(/"text"\s*:/g) || []).length;
+    const parts = [T('Receiving the recipe')];
+    if(name) parts.push(`"${name.replace(/\\"/g, '"')}"`);
+    if(ingredients) parts.push(`${ingredients} ${T('ingredients')}`);
+    if(steps) parts.push(`${steps} ${T('steps')}`);
+    return parts.join(' · ');
   }
   function fillFormFromAi(recipe){
     $('f-emoji').value = recipe.emoji || '';
@@ -3504,7 +3633,11 @@
   const aiText = $('aiImportText');
   const aiBtn = $('aiImportBtn');
   const aiStatus = $('aiImportStatus');
-  function setAiPanel(open){ aiPanel.style.display = open ? 'block' : 'none'; }
+  function setAiPanel(open){
+    aiPanel.style.display = open ? 'block' : 'none';
+    // Get the security token ready while the user is still pasting, so the import starts right away.
+    if(open) window.ChefCloud?.warmAi?.();
+  }
   $('aiImportToggle').addEventListener('click', ()=>setAiPanel(aiPanel.style.display !== 'block'));
   // ---------- Photos and files for the AI import (camera, gallery, PDF, text file, paste, drag & drop) ----------
   const AI_MAX_FILES = 6;
@@ -3597,23 +3730,48 @@
     addAiFiles(e.dataTransfer.files);
   });
 
-  async function runAiFill(lines, fromUrl, waitMsg, youtubeUrl, attachments){
+  async function runAiFill(lines, pageUrl, waitMsg, youtubeUrl, attachments){
     aiBtn.disabled = true;
-    aiStatus.textContent = waitMsg;
+    const started = Date.now();
+    let current = T(waitMsg.replace(/^⏳\s*/, ''));
+    const paint = ()=>{
+      const secs = Math.floor((Date.now() - started) / 1000);
+      aiStatus.textContent = `⏳ ${current} (${window.cwLang === 'he' ? secs + ' שנ׳' : secs + 's'})`;
+    };
+    paint();
+    const ticker = setInterval(paint, 1000);
+    const onProgress = (stage, info)=>{ current = aiProgressText(stage, info || {}); paint(); };
+    const kind = attachments && attachments.length ? 'files' : youtubeUrl ? 'video' : pageUrl ? 'link' : 'text';
     try{
-      fillFormFromAi(await aiJson(lines, fromUrl, youtubeUrl, attachments));
+      const recipe = await aiJson(lines, pageUrl, youtubeUrl, attachments, onProgress);
+      onProgress('filling');
+      fillFormFromAi(recipe);
       setAiPanel(false);
       aiStatus.textContent = '';
       aiText.value = '';
       aiFiles = [];
       renderAiFiles();
-      toast('The recipe is filled in. Check it and tap Save.');
+      toast(T('The recipe is filled in. Check it and tap Save.'));
+      window.ChefCloud?.logEvent?.('ai_import_ok', { kind, seconds: Math.round((Date.now() - started) / 1000) });
     }catch(e){
-      const detail = String((e && e.message) || '').replace(/^.*?:\s*/, '').slice(0, 120);
-      aiStatus.textContent = '❌ It did not work. Please try again.' + (detail ? ` (${detail})` : '');
       console.error('AI import error:', e);
+      const code = String((e && e.code) || '');
+      const raw = String((e && e.message) || '');
+      let msg;
+      if(code === 'url-unreadable') msg = T('The site did not let us read the page. Copy the recipe text from the site and paste it here.');
+      else if(code === 'no-recipe') msg = T('No recipe was found there. Check the link, or paste the recipe text.');
+      else if(/appCheck|app-check|attestation|recaptcha/i.test(code + raw)) msg = T('The security check failed on this device. Close the app completely, open it again and retry.');
+      else if(/quota|429|resource.exhausted|rate/i.test(raw)) msg = T('The AI is busy right now. Wait a minute and try again.');
+      else if(!navigator.onLine || /network|failed to fetch/i.test(raw)) msg = T('No internet connection. Check it and try again.');
+      else msg = T('It did not work. Please try again.');
+      const detail = raw.replace(/^.*?:\s*/, '').slice(0, 120);
+      aiStatus.textContent = `❌ ${msg}` + (detail && code !== 'no-recipe' ? ` (${detail})` : '');
+      // Logged without the link or the text, only what kind of import failed and why, to find real problems.
+      window.ChefCloud?.logEvent?.('ai_import_failed', { kind, code: code.slice(0, 40), reason: detail.slice(0, 100) });
+    }finally{
+      clearInterval(ticker);
+      aiBtn.disabled = false;
     }
-    aiBtn.disabled = false;
   }
   aiBtn.addEventListener('click', ()=>{
     const typed = aiText.value.trim();
@@ -3638,7 +3796,7 @@
         'Write the recipe in the same language as the text in the files.',
         ...(text ? ['', 'Extra details from the user:', text] : []),
         ...AI_SCHEMA_LINES,
-      ], false, '⏳ Reading the photo…', '', attachments);
+      ], '', '⏳ Reading the photo…', '', attachments);
       return;
     }
     if(youtubeUrl){
@@ -3647,7 +3805,7 @@
         'Use the spoken audio, the subtitles/captions, any text shown on screen and the video description if you can see it.',
         'Write the recipe in the same language as the video.',
         ...AI_SCHEMA_LINES,
-      ], false, '⏳ Watching the video…', youtubeUrl);
+      ], '', '⏳ Watching the video…', youtubeUrl);
       return;
     }
     runAiFill([
@@ -3655,7 +3813,7 @@
       'Write the recipe in the same language as the source.',
       ...AI_SCHEMA_LINES,
       ...(isUrl ? [] : ['', 'Recipe text:', text]),
-    ], isUrl, isUrl ? '⏳ Reading the page…' : '⏳ Working on it…');
+    ], isUrl ? linkUrl : '', isUrl ? '⏳ Reading the page…' : '⏳ Working on it…');
   });
   // Dictation: say the recipe out loud instead of typing it.
   const dictateBtn = $('aiDictateBtn');
@@ -3702,7 +3860,7 @@
       'You may add basic pantry items such as salt, pepper, oil and water.',
       `Write the recipe in ${window.cwLang === 'he' ? 'Hebrew' : 'the language of the ingredient names'}.`,
       ...AI_SCHEMA_LINES,
-    ], false, '⏳ Inventing a recipe…');
+    ], '', '⏳ Inventing a recipe…');
   }
   $('fridgeAiBtn').addEventListener('click', ()=>inventFromIngredients(fridgeTerms()));
   // Automatic translation of the open recipe (shown only; the saved recipe is not changed)
@@ -3726,7 +3884,7 @@
         'Keep exactly the same JSON structure, keys, array lengths and order. Translate only the text values. Keep numbers as they are.',
         'Respond ONLY with valid JSON, no markdown fences, no explanation.',
         '', JSON.stringify(slim),
-      ], false);
+      ], '');
       const ingredients = (source.ingredients || []).map((orig, k)=>{
         const t = (out.ingredients || [])[k] || {};
         if(orig.section != null) return { section: String(t.section ?? orig.section) };
