@@ -502,8 +502,15 @@
     <div class="ai-box">
       <button class="btn secondary block" id="aiImportToggle" type="button">✨ Fill it in for me with AI</button>
       <div id="aiImportPanel" style="display:none;margin-top:.7rem;">
-        <p class="muted">Paste recipe text, a link or a YouTube video link, or tap the microphone and just say the recipe.</p>
+        <p class="muted">Paste recipe text, a link or a YouTube video link, add a photo or file, or tap the microphone and just say the recipe.</p>
         <textarea id="aiImportText" rows="5" dir="auto" placeholder="Paste recipe text or a link here" style="width:100%;"></textarea>
+        <div class="row" style="margin-top:.5rem;gap:.5rem;flex-wrap:wrap;">
+          <button class="btn secondary" id="aiPhotoBtn" type="button">📷 Take photo</button>
+          <button class="btn secondary" id="aiFileBtn" type="button">📎 Photo or file</button>
+          <input type="file" id="aiPhotoInput" accept="image/*" capture="environment" hidden>
+          <input type="file" id="aiFileInput" accept="image/*,application/pdf,text/plain,.txt" multiple hidden>
+        </div>
+        <div id="aiFiles" style="display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.4rem;"></div>
         <div class="row" style="margin-top:.5rem;">
           <button class="btn" id="aiImportBtn" type="button">✨ Create recipe</button>
           <button class="btn secondary" id="aiDictateBtn" type="button" hidden>🎤 Speak</button>
@@ -1150,7 +1157,12 @@
       const snap = await getDoc(doc(collection(db, 'publicRecipes'), pubId));
       return snap.exists() ? snap.data() : null;
     },
-    async generateRecipe(prompt, fromUrl, youtubeUrl){
+    async generateRecipe(prompt, fromUrl, youtubeUrl, attachments){
+      // Photos and PDFs go inline; Gemini reads cookbook pages, handwriting and screenshots directly.
+      if(attachments && attachments.length) return recipeModel.generateContent([
+        ...attachments.map(a=>({ inlineData: { mimeType: a.mimeType, data: a.data } })),
+        { text: prompt },
+      ]);
       // A YouTube link is handed to Gemini as a video: it reads the spoken audio, captions and on-screen text.
       if(youtubeUrl) return recipeModel.generateContent([
         { fileData: { mimeType: 'video/mp4', fileUri: youtubeUrl } },
@@ -3343,8 +3355,8 @@
     const a = s.indexOf('{'), b = s.lastIndexOf('}');
     return JSON.parse(a >= 0 && b > a ? s.slice(a, b + 1) : s);
   }
-  async function aiJson(lines, fromUrl, youtubeUrl){
-    const result = await window.ChefCloud.generateRecipe(lines.join('\n'), fromUrl, youtubeUrl);
+  async function aiJson(lines, fromUrl, youtubeUrl, attachments){
+    const result = await window.ChefCloud.generateRecipe(lines.join('\n'), fromUrl, youtubeUrl, attachments);
     return parseAiJson(result.response.text());
   }
   function fillFormFromAi(recipe){
@@ -3370,14 +3382,107 @@
   const aiStatus = $('aiImportStatus');
   function setAiPanel(open){ aiPanel.style.display = open ? 'block' : 'none'; }
   $('aiImportToggle').addEventListener('click', ()=>setAiPanel(aiPanel.style.display !== 'block'));
-  async function runAiFill(lines, fromUrl, waitMsg, youtubeUrl){
+  // ---------- Photos and files for the AI import (camera, gallery, PDF, text file, paste, drag & drop) ----------
+  const AI_MAX_FILES = 6;
+  const AI_MAX_BYTES = 15 * 1024 * 1024;
+  let aiFiles = []; // { name, mimeType, data } for photos/PDF, { name, text } for text files
+  const aiFilesBox = $('aiFiles');
+  function renderAiFiles(){
+    aiFilesBox.innerHTML = '';
+    aiFiles.forEach((f, i)=>{
+      const chip = document.createElement('span');
+      chip.className = 'pill';
+      chip.dir = 'auto';
+      chip.append(`${f.text != null ? '📄' : f.mimeType === 'application/pdf' ? '📕' : '🖼'} ${f.name} `);
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.textContent = '×';
+      x.setAttribute('aria-label', 'Remove');
+      x.style.cssText = 'background:none;border:0;cursor:pointer;color:inherit;font-size:1.1rem;line-height:1;padding:0 .2rem;';
+      x.addEventListener('click', ()=>{ aiFiles.splice(i, 1); renderAiFiles(); });
+      chip.append(x);
+      aiFilesBox.append(chip);
+    });
+  }
+  function fileToBase64(file){
+    return new Promise((resolve, reject)=>{
+      const rd = new FileReader();
+      rd.onload = ()=>resolve(String(rd.result).split(',')[1] || '');
+      rd.onerror = reject;
+      rd.readAsDataURL(file);
+    });
+  }
+  // Photos are shrunk before sending: a phone photo is several MB, but 1600px is plenty to read text.
+  async function imageToAttachment(file){
+    const name = file.name || 'photo';
+    try{
+      const url = URL.createObjectURL(file);
+      try{
+        const img = await new Promise((res, rej)=>{ const im = new Image(); im.onload = ()=>res(im); im.onerror = rej; im.src = url; });
+        const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        return { name, mimeType: 'image/jpeg', data: canvas.toDataURL('image/jpeg', 0.85).split(',')[1] };
+      } finally { URL.revokeObjectURL(url); }
+    }catch(e){
+      // The browser could not decode it (for example HEIC): send the original bytes, Gemini reads HEIC itself.
+      if(/^image\/(heic|heif|webp|png|jpeg)$/i.test(file.type) && file.size <= AI_MAX_BYTES) return { name, mimeType: file.type, data: await fileToBase64(file) };
+      throw e;
+    }
+  }
+  async function addAiFiles(fileList){
+    for(const file of [...fileList]){
+      if(aiFiles.length >= AI_MAX_FILES){ toast(`Up to ${AI_MAX_FILES} files`); break; }
+      try{
+        if(file.type.startsWith('image/')) aiFiles.push(await imageToAttachment(file));
+        else if(file.type === 'application/pdf'){
+          if(file.size > AI_MAX_BYTES){ toast('The file is too large (up to 15 MB)'); continue; }
+          aiFiles.push({ name: file.name || 'recipe.pdf', mimeType: 'application/pdf', data: await fileToBase64(file) });
+        }
+        else if(file.type === 'text/plain' || /\.txt$/i.test(file.name || '')){
+          if(file.size > 1024 * 1024){ toast('The file is too large (up to 15 MB)'); continue; }
+          aiFiles.push({ name: file.name || 'recipe.txt', text: await file.text() });
+        }
+        else toast('That file type is not supported');
+      }catch(e){
+        console.error('Could not read file:', e);
+        toast('Could not read that file');
+      }
+    }
+    renderAiFiles();
+  }
+  $('aiPhotoBtn').addEventListener('click', ()=>$('aiPhotoInput').click());
+  $('aiFileBtn').addEventListener('click', ()=>$('aiFileInput').click());
+  ['aiPhotoInput', 'aiFileInput'].forEach(id=>$(id).addEventListener('change', (e)=>{
+    addAiFiles(e.target.files);
+    e.target.value = '';
+  }));
+  // Ctrl+V of a screenshot or copied image straight into the box.
+  aiText.addEventListener('paste', (e)=>{
+    const files = [...(e.clipboardData?.files || [])].filter(f=>f.type.startsWith('image/') || f.type === 'application/pdf');
+    if(!files.length) return;
+    e.preventDefault();
+    addAiFiles(files);
+  });
+  aiPanel.addEventListener('dragover', (e)=>{ if(e.dataTransfer?.types?.includes('Files')) e.preventDefault(); });
+  aiPanel.addEventListener('drop', (e)=>{
+    if(!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    addAiFiles(e.dataTransfer.files);
+  });
+
+  async function runAiFill(lines, fromUrl, waitMsg, youtubeUrl, attachments){
     aiBtn.disabled = true;
     aiStatus.textContent = waitMsg;
     try{
-      fillFormFromAi(await aiJson(lines, fromUrl, youtubeUrl));
+      fillFormFromAi(await aiJson(lines, fromUrl, youtubeUrl, attachments));
       setAiPanel(false);
       aiStatus.textContent = '';
       aiText.value = '';
+      aiFiles = [];
+      renderAiFiles();
       toast('The recipe is filled in. Check it and tap Save.');
     }catch(e){
       aiStatus.textContent = '❌ It did not work. Please try again.';
@@ -3386,13 +3491,27 @@
     aiBtn.disabled = false;
   }
   aiBtn.addEventListener('click', ()=>{
-    const text = aiText.value.trim();
-    if(!text){ aiStatus.textContent = 'Paste or say the recipe first.'; return; }
+    const typed = aiText.value.trim();
+    if(!typed && !aiFiles.length){ aiStatus.textContent = 'Paste or say the recipe first.'; return; }
     stopDictation();
+    // Text files are simply added to the typed text; photos and PDFs travel as attachments.
+    const text = [typed, ...aiFiles.filter(f=>f.text != null).map(f=>f.text)].filter(Boolean).join('\n\n').trim();
+    const attachments = aiFiles.filter(f=>f.data);
     const isUrl = /^https?:\/\/\S+$/i.test(text);
     const youtubeUrl = isUrl ? youtubeWatchUrl(text) : '';
     // Any pasted link (YouTube or a regular page) becomes the recipe's "original recipe" link.
     if(isUrl) $('f-source-url').value = safeHttpUrl(text);
+    if(attachments.length){
+      runAiFill([
+        'The attached image(s) or document(s) contain a recipe: a cookbook page, a handwritten note, a screenshot or a printout.',
+        'Read all the text carefully, including handwriting. If there are several images, they are pages of the same recipe, in order: combine them into one recipe.',
+        'If the files hold no recipe but show a prepared dish, describe a plausible recipe for it.',
+        'Write the recipe in the same language as the text in the files.',
+        ...(text ? ['', 'Extra details from the user:', text] : []),
+        ...AI_SCHEMA_LINES,
+      ], false, '⏳ Reading the photo…', '', attachments);
+      return;
+    }
     if(youtubeUrl){
       runAiFill([
         'The attached video is a cooking video. Extract the recipe it teaches.',
